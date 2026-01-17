@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  kia-climate-control:
+    build: .
+    container_name: kia-climate-control
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - KIA_USERNAME=${KIA_USERNAME}
+      - KIA_REFRESH_TOKEN=${KIA_REFRESH_TOKEN}
+      - KIA_ACCESS_TOKEN=${KIA_ACCESS_TOKEN:-}
+    volumes:
+      # Persistent storage for schedules
+      - ./data:/app/data
+      # Mount .env file (optional, environment variables are preferred)
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - kia-network
+
+networks:
+  kia-network:
+    driver: bridge

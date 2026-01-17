@@ -1,0 +1,39 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.backup
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Data files (schedules, logs)
+data/
+*.json
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Cloudflare credentials
+.cloudflared/
+*.json

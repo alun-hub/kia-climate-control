@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Kia Control">
+    <title>Kia Control</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+            min-height: 100vh;
+            color: #e2e8f0;
+            padding: 20px;
+        }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+            border-radius: 20px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+        
+        .card {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .status-item {
+            background: linear-gradient(135deg, rgba(51, 65, 85, 0.4), rgba(30, 41, 59, 0.4));
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            transition: all 0.3s;
+        }
+        
+        .status-item:hover {
+            transform: translateY(-2px);
+            border-color: rgba(59, 130, 246, 0.3);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15);
+        }
+        
+        .status-label {
+            color: #94a3b8;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        
+        .status-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+        
+        .btn {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            transition: left 0.5s;
+        }
+        
+        .btn:hover::before { left: 100%; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+        }
+        
+        .btn-success:hover:not(:disabled) {
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+            color: white;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .badge-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+        
+        .badge-warning {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+        }
+        
+        .badge-gray {
+            background: linear-gradient(135deg, #6b7280, #4b5563);
+        }
+        
+        .temperature-display {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
+            border: 2px solid rgba(59, 130, 246, 0.3);
+            border-radius: 30px;
+            padding: 50px;
+            margin: 30px auto;
+            max-width: 300px;
+            text-align: center;
+        }
+        
+        .temperature-value {
+            font-size: 5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 8px;
+            border-radius: 16px;
+        }
+        
+        .tab {
+            flex: 1;
+            padding: 14px 24px;
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 12px;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .alert {
+            padding: 16px 20px;
+            border-radius: 14px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-left: 4px solid;
+            animation: slideIn 0.3s;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .alert-success {
+            background: rgba(16, 185, 129, 0.15);
+            border-color: #10b981;
+            color: #6ee7b7;
+        }
+        
+        .alert-error {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+        
+        .schedule-item {
+            background: linear-gradient(135deg, rgba(51, 65, 85, 0.4), rgba(30, 41, 59, 0.4));
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            transition: all 0.3s;
+        }
+        
+        .schedule-item:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            transform: translateX(4px);
+        }
+        
+        .schedule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .schedule-days {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        
+        .day-badge {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            background: rgba(51, 65, 85, 0.6);
+            border: 2px solid rgba(107, 114, 128, 0.4);
+            transition: all 0.3s;
+        }
+        
+        .day-badge:hover {
+            transform: scale(1.1);
+        }
+        
+        .day-badge.active {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            border-color: #3b82f6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+        
+        input[type="text"],
+        input[type="time"],
+        input[type="number"] {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 12px;
+            color: #e2e8f0;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            transition: all 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        input[type="checkbox"] {
+            width: 22px;
+            height: 22px;
+            cursor: pointer;
+            accent-color: #3b82f6;
+        }
+        
+        label {
+            display: block;
+            color: #94a3b8;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .hidden { display: none !important; }
+
+        .battery-section {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 30px;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .battery-gauge {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+        }
+
+        .battery-gauge svg {
+            transform: rotate(-90deg);
+            display: block;
+        }
+
+        .battery-gauge-bg {
+            fill: none;
+            stroke: rgba(51, 65, 85, 0.6);
+            stroke-width: 12;
+        }
+
+        .battery-gauge-fill {
+            fill: none;
+            stroke: url(#batteryGradient);
+            stroke-width: 12;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s ease;
+        }
+
+        .battery-gauge-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .battery-gauge-percent {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+        }
+
+        .battery-gauge-label {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        
+        .door-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 12px;
+        }
+        
+        .door-item {
+            padding: 12px 16px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(51, 65, 85, 0.4);
+            border: 1px solid rgba(71, 85, 105, 0.6);
+            color: #e2e8f0;
+        }
+
+        .door-item::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        }
+
+        .door-item.open {
+            background: rgba(51, 65, 85, 0.4);
+            border: 1px solid rgba(71, 85, 105, 0.6);
+            color: #e2e8f0;
+        }
+
+        .door-item.open::before {
+            background: #ef4444;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+            animation: pulse-dot 2s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
+            }
+            50% {
+                transform: scale(1.2);
+                box-shadow: 0 0 20px rgba(239, 68, 68, 0.9);
+            }
+        }
+        
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                max-width: 100%;
+            }
+
+            .header {
+                padding: 20px 15px;
+                margin-bottom: 20px;
+            }
+
+            .header h1 {
+                font-size: 1.8rem;
+            }
+
+            .header p {
+                font-size: 0.9rem;
+            }
+
+            .card {
+                padding: 20px 15px;
+                margin-bottom: 15px;
+                border-radius: 16px;
+            }
+
+            h2 {
+                font-size: 1.3rem;
+                margin-bottom: 15px;
+            }
+
+            /* Status grid - single column on mobile */
+            .status-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+
+            .status-item {
+                padding: 15px;
+            }
+
+            .status-value {
+                font-size: 1.3rem;
+            }
+
+            /* Battery section - single column on mobile */
+            .battery-section {
+                grid-template-columns: 1fr;
+                gap: 20px;
+                margin-bottom: 20px;
+            }
+
+            /* Battery gauge - smaller on mobile */
+            .battery-gauge {
+                width: 160px;
+                height: 160px;
+                margin: 0 auto;
+            }
+
+            .battery-gauge svg {
+                width: 160px;
+                height: 160px;
+            }
+
+            .battery-gauge-text {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: auto;
+            }
+
+            .battery-gauge-percent {
+                font-size: 2.5rem !important;
+            }
+
+            .battery-gauge-label {
+                font-size: 0.8rem !important;
+            }
+
+            /* Buttons - full width on mobile */
+            .btn {
+                width: 100%;
+                justify-content: center;
+                padding: 12px 20px;
+                font-size: 0.9rem;
+            }
+
+            /* Temperature display */
+            .temperature-display {
+                margin: 20px 0;
+            }
+
+            .temperature-value {
+                font-size: 3.5rem;
+            }
+
+            /* Tab navigation */
+            .tabs {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                gap: 8px;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+
+            .tabs::-webkit-scrollbar {
+                display: none;
+            }
+
+            .tab {
+                padding: 10px 16px;
+                font-size: 0.85rem;
+                white-space: nowrap;
+                min-width: auto;
+            }
+
+            /* Door grid - single column on mobile */
+            .door-grid {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+
+            .door-item {
+                padding: 10px 14px;
+                font-size: 0.9rem;
+            }
+
+            /* Schedule items */
+            .schedule-item {
+                padding: 15px;
+            }
+
+            .schedule-header {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .schedule-header > div:last-child {
+                flex-direction: column;
+                width: 100%;
+                gap: 8px;
+            }
+
+            .schedule-header button {
+                width: 100%;
+            }
+
+            /* Schedule days */
+            .schedule-days {
+                gap: 6px;
+            }
+
+            .day-badge {
+                padding: 6px 10px;
+                font-size: 0.8rem;
+            }
+
+            /* Forms */
+            input[type="text"],
+            input[type="time"],
+            input[type="number"],
+            input[type="email"] {
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+
+            label {
+                font-size: 0.9rem;
+            }
+
+            /* Alert */
+            .alert {
+                padding: 12px 15px;
+                font-size: 0.9rem;
+            }
+        }
+
+        /* Extra small devices (phones in portrait, less than 576px) */
+        @media (max-width: 576px) {
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
+            .temperature-value {
+                font-size: 3rem;
+            }
+
+            .battery-gauge {
+                width: 140px;
+                height: 140px;
+            }
+
+            .battery-gauge svg {
+                width: 140px;
+                height: 140px;
+            }
+
+            .battery-gauge-percent {
+                font-size: 2rem !important;
+            }
+
+            /* Temperature controls - keep horizontal on mobile */
+            .temperature-display + div {
+                gap: 15px;
+            }
+
+            .temperature-display + div button {
+                width: 60px;
+                height: 60px;
+                font-size: 1.3rem;
+            }
+        }
+
+        /* Landscape mode adjustments */
+        @media (max-width: 896px) and (orientation: landscape) {
+            .header {
+                padding: 15px;
+                margin-bottom: 15px;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
+            .card {
+                padding: 15px;
+            }
+
+            .battery-gauge {
+                width: 120px;
+                height: 120px;
+            }
+
+            .battery-gauge svg {
+                width: 120px;
+                height: 120px;
+            }
+        }
+
+        /* Tablet adjustments */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .status-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .door-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        /* Touch-friendly improvements */
+        @media (hover: none) and (pointer: coarse) {
+            .btn {
+                min-height: 44px; /* iOS recommendation */
+            }
+
+            .tab {
+                min-height: 44px;
+            }
+
+            .day-badge {
+                min-height: 36px;
+                min-width: 36px;
+            }
+
+            .door-item {
+                min-height: 44px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>KIA Status och Kontroll</h1>
+            <p style="color: #94a3b8; font-size: 1.1rem;">Klimatkontroll & Schemaläggning</p>
+        </div>
+
+        <div id="alerts"></div>
+
+        <div class="card">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('status')">Status & Kontroll</button>
+                <button class="tab" onclick="switchTab('schedule')">Schemaläggning</button>
+                <button class="tab" onclick="switchTab('settings')">Inställningar</button>
+            </div>
+
+            <!-- Status Tab -->
+            <div id="statusTab" class="tab-content active">
+                <h2>Fordonsstatus</h2>
+
+                <!-- Battery Gauge -->
+                <div class="battery-section">
+                    <div class="battery-gauge">
+                        <svg viewBox="0 0 200 200" width="100%" height="100%">
+                            <defs>
+                                <linearGradient id="batteryGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#10b981;stop-opacity:1" />
+                                    <stop offset="50%" style="stop-color:#3b82f6;stop-opacity:1" />
+                                    <stop offset="100%" style="stop-color:#a78bfa;stop-opacity:1" />
+                                </linearGradient>
+                            </defs>
+                            <circle class="battery-gauge-bg" cx="100" cy="100" r="90"></circle>
+                            <circle id="batteryGaugeFill" class="battery-gauge-fill" cx="100" cy="100" r="90"
+                                    stroke-dasharray="565.48" stroke-dashoffset="565.48"></circle>
+                        </svg>
+                        <div class="battery-gauge-text">
+                            <div class="battery-gauge-percent" id="batteryPercent">--%</div>
+                            <div class="battery-gauge-label">Batteri</div>
+                        </div>
+                    </div>
+
+                    <div class="status-grid" style="margin: 0;">
+                        <div class="status-item">
+                            <div class="status-label">Räckvidd</div>
+                            <div class="status-value" id="range">-- km</div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-label">Laddning</div>
+                            <div class="status-value">
+                                <span class="badge badge-gray" id="chargingBadge">Okänd</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-label">Låst</div>
+                            <div class="status-value">
+                                <span class="badge badge-gray" id="lockBadge">Okänd</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-label">Klimat</div>
+                            <div class="status-value">
+                                <span class="badge badge-gray" id="climateBadge">Av</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 style="margin-top: 40px;">Fordonsöversikt</h2>
+                <div class="status-grid" style="margin-top: 20px;">
+                    <div class="status-item">
+                        <div class="status-label">Dörrar</div>
+                        <div class="door-grid" id="doorStatus"></div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Övrigt</div>
+                        <div class="door-grid" id="otherStatus"></div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Fönster</div>
+                        <div class="door-grid" id="windowStatus"></div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" style="margin-top: 20px;" onclick="refreshStatus()">
+                    Uppdatera Status
+                </button>
+
+                <h2 style="margin-top: 40px;">Klimatkontroll</h2>
+                <div style="text-align: center;">
+                    <div class="temperature-display">
+                        <div class="temperature-value" id="targetTemp">21°</div>
+                        <div style="color: #94a3b8; font-size: 1.1rem; font-weight: 600;">Måltemperatur</div>
+                    </div>
+
+                    <div style="display: flex; justify-content: center; gap: 20px; margin: 30px 0;">
+                        <button class="btn btn-primary" style="width: 70px; height: 70px; border-radius: 50%; font-size: 1.5rem;" onclick="adjustTemp(-1)">−</button>
+                        <button class="btn btn-danger" style="width: 70px; height: 70px; border-radius: 50%; font-size: 1.5rem;" onclick="adjustTemp(1)">+</button>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <button class="btn btn-success" id="startClimateBtn" onclick="startClimate()">
+                            Starta Klimat
+                        </button>
+                        <button class="btn btn-danger hidden" id="stopClimateBtn" onclick="stopClimate()">
+                            Stoppa Klimat
+                        </button>
+                        <button class="btn btn-primary" onclick="toggleDefrost()">
+                            <span id="defrostText">Avfrostning: Av</span>
+                        </button>
+                    </div>
+                </div>
+
+                <h2 style="margin-top: 40px;">Laddning</h2>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                    <button class="btn btn-success" onclick="startCharging()">Starta Laddning</button>
+                    <button class="btn btn-danger" onclick="stopCharging()">Stoppa Laddning</button>
+                </div>
+            </div>
+
+            <!-- Schedule Tab -->
+            <div id="scheduleTab" class="tab-content">
+                <h2>Schemaläggning</h2>
+                <p style="color: #94a3b8; margin-bottom: 25px; font-size: 1.05rem;">
+                    Schemalägg automatisk klimatstart baserat på veckodag och tid (24-timmars format).
+                </p>
+
+                <div id="scheduleList"></div>
+
+                <button class="btn btn-success" onclick="showAddSchedule()" style="margin-top: 20px;">
+                    Ny Schemaläggning
+                </button>
+
+                <div id="addScheduleForm" class="hidden" style="margin-top: 30px; padding: 25px; background: rgba(15, 23, 42, 0.6); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1);">
+                    <h3 style="margin-bottom: 25px; color: #e2e8f0; font-size: 1.3rem;" id="formTitle">Ny Schemaläggning</h3>
+                    
+                    <label>Namn</label>
+                    <input type="text" id="scheduleName" placeholder="T.ex. Morgon" value="Morgon">
+
+                    <label>Tid (24-timmar)</label>
+                    <input type="time" id="scheduleTime" value="07:00" step="60">
+
+                    <label>Temperatur (°C)</label>
+                    <input type="number" id="scheduleTemp" min="16" max="30" value="21">
+
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 20px;">
+                        <input type="checkbox" id="scheduleDefrost"> Avfrostning
+                    </label>
+
+                    <label>Välj dagar</label>
+                    <div class="schedule-days" style="margin-bottom: 25px;">
+                        <div class="day-badge" data-day="0" onclick="toggleDay(0)">Mån</div>
+                        <div class="day-badge" data-day="1" onclick="toggleDay(1)">Tis</div>
+                        <div class="day-badge" data-day="2" onclick="toggleDay(2)">Ons</div>
+                        <div class="day-badge" data-day="3" onclick="toggleDay(3)">Tor</div>
+                        <div class="day-badge" data-day="4" onclick="toggleDay(4)">Fre</div>
+                        <div class="day-badge" data-day="5" onclick="toggleDay(5)">Lör</div>
+                        <div class="day-badge" data-day="6" onclick="toggleDay(6)">Sön</div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                        <button class="btn btn-success" onclick="saveSchedule()">Spara</button>
+                        <button class="btn btn-secondary" onclick="cancelSchedule()">Avbryt</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settingsTab" class="tab-content">
+                <h2>Inställningar</h2>
+                <p style="color: #94a3b8; margin-bottom: 25px; font-size: 1.05rem;">
+                    Hantera dina Kia UVO API-inloggningsuppgifter. När din refresh token går ut kan du uppdatera den här.
+                </p>
+
+                <div style="padding: 25px; background: rgba(15, 23, 42, 0.6); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1);">
+                    <h3 style="margin-bottom: 20px; color: #e2e8f0; font-size: 1.2rem;">API-uppgifter</h3>
+
+                    <label>E-postadress (Kia Connect)</label>
+                    <input type="text" id="settingsUsername" placeholder="din@email.com">
+
+                    <label>Refresh Token</label>
+                    <input type="text" id="settingsRefreshToken" placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...">
+
+                    <label>Access Token (valfritt)</label>
+                    <input type="text" id="settingsAccessToken" placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...">
+
+                    <p style="color: #94a3b8; font-size: 0.9rem; margin: 15px 0; padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; border-left: 3px solid #3b82f6;">
+                        <strong>Tips:</strong> Du kan hämta din refresh token och access token från Kia Connect-appen genom att använda verktyg som mitmproxy eller genom att följa guider online. Access token är valfri och används endast om refresh token inte fungerar.
+                    </p>
+
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 25px;">
+                        <button class="btn btn-success" onclick="saveCredentials()">Spara & Återanslut</button>
+                        <button class="btn btn-secondary" onclick="loadCurrentCredentials()">Hämta Nuvarande</button>
+                    </div>
+
+                    <div id="connectionStatus" style="margin-top: 20px; padding: 15px; border-radius: 12px; display: none;">
+                        <strong id="connectionStatusText"></strong>
+                    </div>
+                </div>
+
+                <div style="padding: 25px; background: rgba(15, 23, 42, 0.6); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1); margin-top: 20px;">
+                    <h3 style="margin-bottom: 15px; color: #e2e8f0; font-size: 1.2rem;">Anslutningsstatus</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div style="padding: 15px; background: rgba(51, 65, 85, 0.4); border-radius: 12px;">
+                            <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 5px;">API Status</div>
+                            <div style="font-size: 1.2rem; font-weight: 600;" id="apiStatus">Kontrollerar...</div>
+                        </div>
+                        <div style="padding: 15px; background: rgba(51, 65, 85, 0.4); border-radius: 12px;">
+                            <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 5px;">Senast Uppdaterad</div>
+                            <div style="font-size: 1.2rem; font-weight: 600;" id="lastUpdate">--</div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" onclick="checkHealth()" style="margin-top: 15px; width: 100%;">
+                        Kontrollera Anslutning
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Use relative URL so it works both locally and via Cloudflare Tunnel
+        var API_URL = window.location.origin;
+        var currentTemp = 21;
+        var defrostEnabled = false;
+        var climateActive = false;
+        var selectedDays = [];
+        var editingScheduleId = null;
+
+        function showAlert(message, type) {
+            var alerts = document.getElementById('alerts');
+            var alert = document.createElement('div');
+            alert.className = 'alert alert-' + (type || 'success');
+            alert.textContent = message;
+            alerts.appendChild(alert);
+            setTimeout(function() { alert.remove(); }, 5000);
+        }
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+            document.querySelectorAll('.tab-content').forEach(function(c) { c.classList.remove('active'); });
+
+            if (tab === 'status') {
+                document.querySelector('.tab:nth-child(1)').classList.add('active');
+                document.getElementById('statusTab').classList.add('active');
+            } else if (tab === 'schedule') {
+                document.querySelector('.tab:nth-child(2)').classList.add('active');
+                document.getElementById('scheduleTab').classList.add('active');
+                loadSchedules();
+            } else if (tab === 'settings') {
+                document.querySelector('.tab:nth-child(3)').classList.add('active');
+                document.getElementById('settingsTab').classList.add('active');
+                checkHealth();
+            }
+        }
+
+        function updateBatteryGauge(percent) {
+            var circumference = 2 * Math.PI * 90; // 565.48
+            var offset = circumference - (percent / 100) * circumference;
+            document.getElementById('batteryGaugeFill').style.strokeDashoffset = offset;
+            document.getElementById('batteryPercent').textContent = percent + '%';
+        }
+
+        function refreshStatus() {
+            fetch(API_URL + '/api/status')
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    if (result.success) {
+                        var d = result.data;
+                        updateBatteryGauge(d.battery);
+                        document.getElementById('range').textContent = d.range + ' km';
+
+                        var chargingBadge = document.getElementById('chargingBadge');
+                        if (d.charging) {
+                            chargingBadge.textContent = 'Laddar';
+                            chargingBadge.className = 'badge badge-success';
+                        } else if (d.pluggedIn) {
+                            chargingBadge.textContent = 'Inkopplad';
+                            chargingBadge.className = 'badge badge-warning';
+                        } else {
+                            chargingBadge.textContent = 'Inte inkopplad';
+                            chargingBadge.className = 'badge badge-gray';
+                        }
+                        
+                        var lockBadge = document.getElementById('lockBadge');
+                        lockBadge.textContent = d.locked ? 'Låst' : 'Olåst';
+                        lockBadge.className = d.locked ? 'badge badge-success' : 'badge badge-warning';
+                        
+                        var climateBadge = document.getElementById('climateBadge');
+                        if (d.climateActive) {
+                            climateBadge.textContent = 'Påslagen';
+                            climateBadge.className = 'badge badge-success';
+                            climateActive = true;
+                            updateClimateButtons(true);
+                        } else {
+                            climateBadge.textContent = 'Av';
+                            climateBadge.className = 'badge badge-gray';
+                            climateActive = false;
+                            updateClimateButtons(false);
+                        }
+                        
+                        updateDoorStatus(d.doors, d.windows);
+                        showAlert('Status uppdaterad', 'success');
+                    } else {
+                        showAlert(result.message, 'error');
+                    }
+                })
+                .catch(function(e) { showAlert('Kunde inte hämta status', 'error'); });
+        }
+
+        function updateDoorStatus(doors, windows) {
+            // Update text-based door status
+            var doorHtml = '';
+            doorHtml += '<div class="door-item' + (doors.driver ? ' open' : '') + '">Förare: ' + (doors.driver ? 'Öppen' : 'Stängd') + '</div>';
+            doorHtml += '<div class="door-item' + (doors.passenger ? ' open' : '') + '">Pass.: ' + (doors.passenger ? 'Öppen' : 'Stängd') + '</div>';
+            doorHtml += '<div class="door-item' + (doors.backLeft ? ' open' : '') + '">V Bak: ' + (doors.backLeft ? 'Öppen' : 'Stängd') + '</div>';
+            doorHtml += '<div class="door-item' + (doors.backRight ? ' open' : '') + '">H Bak: ' + (doors.backRight ? 'Öppen' : 'Stängd') + '</div>';
+            document.getElementById('doorStatus').innerHTML = doorHtml;
+
+            var otherHtml = '<div class="door-item' + (doors.trunk ? ' open' : '') + '">Bagage: ' + (doors.trunk ? 'Öppen' : 'Stängd') + '</div>';
+            otherHtml += '<div class="door-item' + (doors.hood ? ' open' : '') + '">Huv: ' + (doors.hood ? 'Öppen' : 'Stängd') + '</div>';
+            document.getElementById('otherStatus').innerHTML = otherHtml;
+
+            var windowHtml = '';
+            windowHtml += '<div class="door-item' + (windows.driver ? ' open' : '') + '">Förare: ' + (windows.driver ? 'Öppet' : 'Stängt') + '</div>';
+            windowHtml += '<div class="door-item' + (windows.passenger ? ' open' : '') + '">Pass.: ' + (windows.passenger ? 'Öppet' : 'Stängt') + '</div>';
+            windowHtml += '<div class="door-item' + (windows.backLeft ? ' open' : '') + '">V Bak: ' + (windows.backLeft ? 'Öppet' : 'Stängt') + '</div>';
+            windowHtml += '<div class="door-item' + (windows.backRight ? ' open' : '') + '">H Bak: ' + (windows.backRight ? 'Öppet' : 'Stängt') + '</div>';
+            document.getElementById('windowStatus').innerHTML = windowHtml;
+
+            // Update visual car representation
+            updateCarVisual(doors, windows);
+        }
+
+        function updateCarVisual(doors, windows) {
+            // Visual car representation removed - now using text-based colored status
+        }
+
+        function adjustTemp(delta) {
+            currentTemp = Math.max(16, Math.min(30, currentTemp + delta));
+            document.getElementById('targetTemp').textContent = currentTemp + '°';
+        }
+
+        function toggleDefrost() {
+            defrostEnabled = !defrostEnabled;
+            document.getElementById('defrostText').textContent = 'Avfrostning: ' + (defrostEnabled ? 'På' : 'Av');
+        }
+
+        function startClimate() {
+            var btn = document.getElementById('startClimateBtn');
+            btn.disabled = true;
+            btn.textContent = 'Startar...';
+            
+            fetch(API_URL + '/api/climate/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ temperature: currentTemp, defrost: defrostEnabled, heating: true })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                btn.disabled = false;
+                btn.textContent = 'Starta Klimat';
+                showAlert(result.success ? result.message : result.message, result.success ? 'success' : 'error');
+                if (result.success) {
+                    climateActive = true;
+                    updateClimateButtons(true);
+                    setTimeout(refreshStatus, 5000);
+                }
+            })
+            .catch(function(e) {
+                btn.disabled = false;
+                btn.textContent = 'Starta Klimat';
+                showAlert('Fel vid klimatstart', 'error');
+            });
+        }
+
+        function stopClimate() {
+            var btn = document.getElementById('stopClimateBtn');
+            btn.disabled = true;
+            btn.textContent = 'Stoppar...';
+            
+            fetch(API_URL + '/api/climate/stop', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    btn.disabled = false;
+                    btn.textContent = 'Stoppa Klimat';
+                    showAlert(result.success ? result.message : result.message, result.success ? 'success' : 'error');
+                    if (result.success) {
+                        climateActive = false;
+                        updateClimateButtons(false);
+                        setTimeout(refreshStatus, 5000);
+                    }
+                })
+                .catch(function(e) {
+                    btn.disabled = false;
+                    btn.textContent = 'Stoppa Klimat';
+                    showAlert('Fel vid klimatstopp', 'error');
+                });
+        }
+
+        function updateClimateButtons(active) {
+            document.getElementById('startClimateBtn').classList.toggle('hidden', active);
+            document.getElementById('stopClimateBtn').classList.toggle('hidden', !active);
+        }
+
+        function startCharging() {
+            fetch(API_URL + '/api/charging/start', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    showAlert(result.message, result.success ? 'success' : 'error');
+                    if (result.success) setTimeout(refreshStatus, 5000);
+                })
+                .catch(function(e) { showAlert('Fel vid laddningsstart', 'error'); });
+        }
+
+        function stopCharging() {
+            fetch(API_URL + '/api/charging/stop', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    showAlert(result.message, result.success ? 'success' : 'error');
+                    if (result.success) setTimeout(refreshStatus, 5000);
+                })
+                .catch(function(e) { showAlert('Fel vid laddningsstopp', 'error'); });
+        }
+
+        function loadSchedules() {
+            fetch(API_URL + '/api/schedules')
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    if (result.success) displaySchedules(result.schedules);
+                })
+                .catch(function(e) { console.error('Kunde inte ladda scheman:', e); });
+        }
+
+        function displaySchedules(schedules) {
+            var html = '';
+            var days = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
+            
+            schedules.forEach(function(s) {
+                var daysHtml = '';
+                for (var i = 0; i < 7; i++) {
+                    var active = s.days.indexOf(i) !== -1;
+                    daysHtml += '<div class="day-badge' + (active ? ' active' : '') + '">' + days[i] + '</div>';
+                }
+                
+                html += '<div class="schedule-item" style="opacity: ' + (s.enabled ? '1' : '0.5') + ';">';
+                html += '<div class="schedule-header">';
+                html += '<div><strong style="font-size: 1.1rem;">' + s.name + '</strong> — ' + s.time + ' (' + s.temperature + '°C' + (s.defrost ? ', Avfrost' : '') + ')</div>';
+                html += '<div style="display: flex; gap: 10px; align-items: center;">';
+                html += '<label style="display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer; color: #e2e8f0; text-transform: none;">';
+                html += '<input type="checkbox" ' + (s.enabled ? 'checked' : '') + ' onchange="toggleScheduleEnabled(\'' + s.id + '\', this.checked)">';
+                html += '<span style="font-size: 0.9rem;">Aktiverad</span>';
+                html += '</label>';
+                html += '<button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="editSchedule(\'' + s.id + '\')">Redigera</button>';
+                html += '<button class="btn btn-danger" style="padding: 8px 16px; font-size: 0.85rem;" onclick="deleteSchedule(\'' + s.id + '\')">Ta bort</button>';
+                html += '</div></div>';
+                html += '<div class="schedule-days">' + daysHtml + '</div>';
+                html += '</div>';
+            });
+            
+            if (schedules.length === 0) {
+                html = '<p style="color: #94a3b8; text-align: center; padding: 40px; font-size: 1.1rem;">Inga schemaläggningar ännu.</p>';
+            }
+            
+            document.getElementById('scheduleList').innerHTML = html;
+        }
+
+        function showAddSchedule() {
+            document.getElementById('formTitle').textContent = 'Ny Schemaläggning';
+            document.getElementById('addScheduleForm').classList.remove('hidden');
+            selectedDays = [0, 1, 2, 3, 4];
+            updateDayBadges();
+            editingScheduleId = null;
+        }
+
+        function editSchedule(id) {
+            fetch(API_URL + '/api/schedules')
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    if (result.success) {
+                        var schedule = result.schedules.find(function(s) { return s.id === id; });
+                        if (schedule) {
+                            document.getElementById('formTitle').textContent = 'Redigera: ' + schedule.name;
+                            document.getElementById('scheduleName').value = schedule.name;
+                            document.getElementById('scheduleTime').value = schedule.time;
+                            document.getElementById('scheduleTemp').value = schedule.temperature;
+                            document.getElementById('scheduleDefrost').checked = schedule.defrost;
+                            selectedDays = schedule.days;
+                            updateDayBadges();
+                            editingScheduleId = id;
+                            document.getElementById('addScheduleForm').classList.remove('hidden');
+                            document.getElementById('addScheduleForm').scrollIntoView({ behavior: 'smooth' });
+                        }
+                    }
+                });
+        }
+
+        function cancelSchedule() {
+            document.getElementById('addScheduleForm').classList.add('hidden');
+            document.getElementById('scheduleName').value = 'Morgon';
+            document.getElementById('scheduleTime').value = '07:00';
+            document.getElementById('scheduleTemp').value = '21';
+            document.getElementById('scheduleDefrost').checked = false;
+            selectedDays = [];
+            editingScheduleId = null;
+        }
+
+        function toggleDay(day) {
+            var idx = selectedDays.indexOf(day);
+            if (idx === -1) {
+                selectedDays.push(day);
+            } else {
+                selectedDays.splice(idx, 1);
+            }
+            updateDayBadges();
+        }
+
+        function updateDayBadges() {
+            document.querySelectorAll('.day-badge').forEach(function(badge) {
+                var day = parseInt(badge.getAttribute('data-day'));
+                if (selectedDays.indexOf(day) !== -1) {
+                    badge.classList.add('active');
+                } else {
+                    badge.classList.remove('active');
+                }
+            });
+        }
+
+        function saveSchedule() {
+            if (selectedDays.length === 0) {
+                showAlert('Välj minst en dag', 'error');
+                return;
+            }
+            
+            // Get time value and ensure it's in 24-hour format
+            var timeValue = document.getElementById('scheduleTime').value;
+            
+            // Validate time format (HH:MM)
+            if (!timeValue || !timeValue.match(/^\d{2}:\d{2}$/)) {
+                showAlert('Ogiltig tid. Använd formatet HH:MM (t.ex. 07:00 eller 19:00)', 'error');
+                return;
+            }
+            
+            var schedule = {
+                id: editingScheduleId || Date.now().toString(),
+                name: document.getElementById('scheduleName').value,
+                time: timeValue,
+                temperature: parseInt(document.getElementById('scheduleTemp').value),
+                defrost: document.getElementById('scheduleDefrost').checked,
+                days: selectedDays,
+                enabled: true
+            };
+
+            fetch(API_URL + '/api/schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(schedule)
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    showAlert(editingScheduleId ? 'Schema uppdaterat!' : 'Schema sparat!', 'success');
+                    cancelSchedule();
+                    loadSchedules();
+                } else {
+                    showAlert(result.message, 'error');
+                }
+            })
+            .catch(function(e) { showAlert('Kunde inte spara', 'error'); });
+        }
+
+        function toggleScheduleEnabled(id, enabled) {
+            fetch(API_URL + '/api/schedules/' + id + '/toggle', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: enabled })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    showAlert(enabled ? 'Schema aktiverat' : 'Schema inaktiverat', 'success');
+                    loadSchedules();
+                } else {
+                    showAlert(result.message, 'error');
+                }
+            })
+            .catch(function(e) { showAlert('Kunde inte uppdatera schema', 'error'); });
+        }
+
+        function deleteSchedule(id) {
+            if (!confirm('Är du säker på att du vill ta bort denna schemaläggning?')) return;
+
+            fetch(API_URL + '/api/schedules/' + id, { method: 'DELETE' })
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    if (result.success) {
+                        showAlert('Schema borttaget', 'success');
+                        loadSchedules();
+                    } else {
+                        showAlert(result.message, 'error');
+                    }
+                })
+                .catch(function(e) { showAlert('Kunde inte ta bort', 'error'); });
+        }
+
+        function checkHealth() {
+            fetch(API_URL + '/api/health')
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    var apiStatus = document.getElementById('apiStatus');
+                    var lastUpdate = document.getElementById('lastUpdate');
+
+                    if (result.connected) {
+                        apiStatus.textContent = '✓ Ansluten';
+                        apiStatus.style.color = '#10b981';
+                    } else {
+                        apiStatus.textContent = '✗ Frånkopplad';
+                        apiStatus.style.color = '#ef4444';
+                    }
+
+                    if (result.timestamp) {
+                        var time = new Date(result.timestamp);
+                        lastUpdate.textContent = time.toLocaleTimeString('sv-SE');
+                    }
+                })
+                .catch(function(e) {
+                    document.getElementById('apiStatus').textContent = '✗ Fel';
+                    document.getElementById('apiStatus').style.color = '#ef4444';
+                    showAlert('Kunde inte kontrollera anslutning', 'error');
+                });
+        }
+
+        function loadCurrentCredentials() {
+            fetch(API_URL + '/api/credentials')
+                .then(function(r) { return r.json(); })
+                .then(function(result) {
+                    if (result.success) {
+                        document.getElementById('settingsUsername').value = result.username || '';
+                        document.getElementById('settingsRefreshToken').value = result.refresh_token || '';
+                        document.getElementById('settingsAccessToken').value = result.access_token || '';
+                        showAlert('Uppgifter laddade', 'success');
+                    } else {
+                        showAlert('Kunde inte ladda uppgifter', 'error');
+                    }
+                })
+                .catch(function(e) { showAlert('Fel vid laddning av uppgifter', 'error'); });
+        }
+
+        function saveCredentials() {
+            var username = document.getElementById('settingsUsername').value.trim();
+            var refreshToken = document.getElementById('settingsRefreshToken').value.trim();
+            var accessToken = document.getElementById('settingsAccessToken').value.trim();
+
+            if (!username || !refreshToken) {
+                showAlert('Fyll i både e-post och refresh token', 'error');
+                return;
+            }
+
+            var statusDiv = document.getElementById('connectionStatus');
+            var statusText = document.getElementById('connectionStatusText');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = 'rgba(59, 130, 246, 0.15)';
+            statusDiv.style.borderLeft = '4px solid #3b82f6';
+            statusText.textContent = 'Sparar och återansluter...';
+            statusText.style.color = '#60a5fa';
+
+            var payload = {
+                username: username,
+                refresh_token: refreshToken
+            };
+
+            if (accessToken) {
+                payload.access_token = accessToken;
+            }
+
+            fetch(API_URL + '/api/credentials', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                if (result.success) {
+                    statusDiv.style.background = 'rgba(16, 185, 129, 0.15)';
+                    statusDiv.style.borderLeft = '4px solid #10b981';
+                    statusText.textContent = '✓ ' + result.message;
+                    statusText.style.color = '#6ee7b7';
+                    showAlert('Uppgifter sparade och återansluten!', 'success');
+                    setTimeout(function() {
+                        checkHealth();
+                        statusDiv.style.display = 'none';
+                    }, 3000);
+                } else {
+                    statusDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+                    statusDiv.style.borderLeft = '4px solid #ef4444';
+                    statusText.textContent = '✗ ' + result.message;
+                    statusText.style.color = '#fca5a5';
+                    showAlert(result.message, 'error');
+                }
+            })
+            .catch(function(e) {
+                statusDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+                statusDiv.style.borderLeft = '4px solid #ef4444';
+                statusText.textContent = '✗ Fel vid sparande';
+                statusText.style.color = '#fca5a5';
+                showAlert('Kunde inte spara uppgifter', 'error');
+            });
+        }
+
+        window.addEventListener('load', function() {
+            refreshStatus();
+            checkHealth();
+        });
+    </script>
+</body>
+</html>

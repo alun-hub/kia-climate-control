@@ -1,0 +1,4 @@
+Flask==3.0.0
+flask-cors==4.0.0
+python-dotenv==1.0.0
+hyundai-kia-connect-api==4.3.9
