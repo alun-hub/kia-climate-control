@@ -39,6 +39,69 @@
             background-clip: text;
             margin-bottom: 10px;
         }
+
+        .admin-link {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            padding: 10px 20px;
+            border-radius: 12px;
+            color: #60a5fa;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .admin-link:hover {
+            background: rgba(59, 130, 246, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .connection-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 12px;
+        }
+
+        .connection-status.connected {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+        }
+
+        .connection-status.disconnected {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .connection-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .connection-status.connected .connection-status-dot {
+            background: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        }
+
+        .connection-status.disconnected .connection-status-dot {
+            background: #ef4444;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+            animation: pulse-dot 2s infinite;
+        }
         
         .card {
             background: rgba(30, 41, 59, 0.6);
@@ -490,6 +553,10 @@
                 font-size: 0.9rem;
             }
 
+            .admin-link {
+                display: none;
+            }
+
             .card {
                 padding: 20px 15px;
                 margin-bottom: 15px;
@@ -653,6 +720,10 @@
                 font-size: 1.5rem;
             }
 
+            .admin-link {
+                display: none;
+            }
+
             .temperature-value {
                 font-size: 3rem;
             }
@@ -743,9 +814,15 @@
 </head>
 <body>
     <div class="container">
+        <a href="/admin" class="admin-link">🔧 Token-hantering</a>
+
         <div class="header">
             <h1>KIA Status och Kontroll</h1>
             <p style="color: #94a3b8; font-size: 1.1rem;">Klimatkontroll & Schemaläggning</p>
+            <div class="connection-status disconnected" id="connectionStatus">
+                <span class="connection-status-dot"></span>
+                <span id="connectionStatusText">Kontrollerar anslutning...</span>
+            </div>
         </div>
 
         <div id="alerts"></div>
@@ -754,7 +831,6 @@
             <div class="tabs">
                 <button class="tab active" onclick="switchTab('status')">Status & Kontroll</button>
                 <button class="tab" onclick="switchTab('schedule')">Schemaläggning</button>
-                <button class="tab" onclick="switchTab('settings')">Inställningar</button>
             </div>
 
             <!-- Status Tab -->
@@ -907,56 +983,6 @@
                 </div>
             </div>
 
-            <!-- Settings Tab -->
-            <div id="settingsTab" class="tab-content">
-                <h2>Inställningar</h2>
-                <p style="color: #94a3b8; margin-bottom: 25px; font-size: 1.05rem;">
-                    Hantera dina Kia UVO API-inloggningsuppgifter. När din refresh token går ut kan du uppdatera den här.
-                </p>
-
-                <div style="padding: 25px; background: rgba(15, 23, 42, 0.6); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1);">
-                    <h3 style="margin-bottom: 20px; color: #e2e8f0; font-size: 1.2rem;">API-uppgifter</h3>
-
-                    <label>E-postadress (Kia Connect)</label>
-                    <input type="text" id="settingsUsername" placeholder="din@email.com">
-
-                    <label>Refresh Token</label>
-                    <input type="text" id="settingsRefreshToken" placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...">
-
-                    <label>Access Token (valfritt)</label>
-                    <input type="text" id="settingsAccessToken" placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...">
-
-                    <p style="color: #94a3b8; font-size: 0.9rem; margin: 15px 0; padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; border-left: 3px solid #3b82f6;">
-                        <strong>Tips:</strong> Du kan hämta din refresh token och access token från Kia Connect-appen genom att använda verktyg som mitmproxy eller genom att följa guider online. Access token är valfri och används endast om refresh token inte fungerar.
-                    </p>
-
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 25px;">
-                        <button class="btn btn-success" onclick="saveCredentials()">Spara & Återanslut</button>
-                        <button class="btn btn-secondary" onclick="loadCurrentCredentials()">Hämta Nuvarande</button>
-                    </div>
-
-                    <div id="connectionStatus" style="margin-top: 20px; padding: 15px; border-radius: 12px; display: none;">
-                        <strong id="connectionStatusText"></strong>
-                    </div>
-                </div>
-
-                <div style="padding: 25px; background: rgba(15, 23, 42, 0.6); border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.1); margin-top: 20px;">
-                    <h3 style="margin-bottom: 15px; color: #e2e8f0; font-size: 1.2rem;">Anslutningsstatus</h3>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-                        <div style="padding: 15px; background: rgba(51, 65, 85, 0.4); border-radius: 12px;">
-                            <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 5px;">API Status</div>
-                            <div style="font-size: 1.2rem; font-weight: 600;" id="apiStatus">Kontrollerar...</div>
-                        </div>
-                        <div style="padding: 15px; background: rgba(51, 65, 85, 0.4); border-radius: 12px;">
-                            <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 5px;">Senast Uppdaterad</div>
-                            <div style="font-size: 1.2rem; font-weight: 600;" id="lastUpdate">--</div>
-                        </div>
-                    </div>
-                    <button class="btn btn-primary" onclick="checkHealth()" style="margin-top: 15px; width: 100%;">
-                        Kontrollera Anslutning
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 
@@ -989,10 +1015,6 @@
                 document.querySelector('.tab:nth-child(2)').classList.add('active');
                 document.getElementById('scheduleTab').classList.add('active');
                 loadSchedules();
-            } else if (tab === 'settings') {
-                document.querySelector('.tab:nth-child(3)').classList.add('active');
-                document.getElementById('settingsTab').classList.add('active');
-                checkHealth();
             }
         }
 
@@ -1008,6 +1030,9 @@
                 .then(function(r) { return r.json(); })
                 .then(function(result) {
                     if (result.success) {
+                        // Update connection status
+                        updateConnectionStatus(true);
+
                         var d = result.data;
                         updateBatteryGauge(d.battery);
                         document.getElementById('range').textContent = d.range + ' km';
@@ -1047,7 +1072,23 @@
                         showAlert(result.message, 'error');
                     }
                 })
-                .catch(function(e) { showAlert('Kunde inte hämta status', 'error'); });
+                .catch(function(e) {
+                    updateConnectionStatus(false);
+                    showAlert('Kunde inte hämta status', 'error');
+                });
+        }
+
+        function updateConnectionStatus(connected) {
+            var statusEl = document.getElementById('connectionStatus');
+            var textEl = document.getElementById('connectionStatusText');
+
+            if (connected) {
+                statusEl.className = 'connection-status connected';
+                textEl.textContent = '✓ Ansluten till Kia';
+            } else {
+                statusEl.className = 'connection-status disconnected';
+                textEl.textContent = '✗ Ej ansluten - Kontrollera credentials';
+            }
         }
 
         function updateDoorStatus(doors, windows) {
@@ -1345,113 +1386,8 @@
                 .catch(function(e) { showAlert('Kunde inte ta bort', 'error'); });
         }
 
-        function checkHealth() {
-            fetch(API_URL + '/api/health')
-                .then(function(r) { return r.json(); })
-                .then(function(result) {
-                    var apiStatus = document.getElementById('apiStatus');
-                    var lastUpdate = document.getElementById('lastUpdate');
-
-                    if (result.connected) {
-                        apiStatus.textContent = '✓ Ansluten';
-                        apiStatus.style.color = '#10b981';
-                    } else {
-                        apiStatus.textContent = '✗ Frånkopplad';
-                        apiStatus.style.color = '#ef4444';
-                    }
-
-                    if (result.timestamp) {
-                        var time = new Date(result.timestamp);
-                        lastUpdate.textContent = time.toLocaleTimeString('sv-SE');
-                    }
-                })
-                .catch(function(e) {
-                    document.getElementById('apiStatus').textContent = '✗ Fel';
-                    document.getElementById('apiStatus').style.color = '#ef4444';
-                    showAlert('Kunde inte kontrollera anslutning', 'error');
-                });
-        }
-
-        function loadCurrentCredentials() {
-            fetch(API_URL + '/api/credentials')
-                .then(function(r) { return r.json(); })
-                .then(function(result) {
-                    if (result.success) {
-                        document.getElementById('settingsUsername').value = result.username || '';
-                        document.getElementById('settingsRefreshToken').value = result.refresh_token || '';
-                        document.getElementById('settingsAccessToken').value = result.access_token || '';
-                        showAlert('Uppgifter laddade', 'success');
-                    } else {
-                        showAlert('Kunde inte ladda uppgifter', 'error');
-                    }
-                })
-                .catch(function(e) { showAlert('Fel vid laddning av uppgifter', 'error'); });
-        }
-
-        function saveCredentials() {
-            var username = document.getElementById('settingsUsername').value.trim();
-            var refreshToken = document.getElementById('settingsRefreshToken').value.trim();
-            var accessToken = document.getElementById('settingsAccessToken').value.trim();
-
-            if (!username || !refreshToken) {
-                showAlert('Fyll i både e-post och refresh token', 'error');
-                return;
-            }
-
-            var statusDiv = document.getElementById('connectionStatus');
-            var statusText = document.getElementById('connectionStatusText');
-            statusDiv.style.display = 'block';
-            statusDiv.style.background = 'rgba(59, 130, 246, 0.15)';
-            statusDiv.style.borderLeft = '4px solid #3b82f6';
-            statusText.textContent = 'Sparar och återansluter...';
-            statusText.style.color = '#60a5fa';
-
-            var payload = {
-                username: username,
-                refresh_token: refreshToken
-            };
-
-            if (accessToken) {
-                payload.access_token = accessToken;
-            }
-
-            fetch(API_URL + '/api/credentials', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(result) {
-                if (result.success) {
-                    statusDiv.style.background = 'rgba(16, 185, 129, 0.15)';
-                    statusDiv.style.borderLeft = '4px solid #10b981';
-                    statusText.textContent = '✓ ' + result.message;
-                    statusText.style.color = '#6ee7b7';
-                    showAlert('Uppgifter sparade och återansluten!', 'success');
-                    setTimeout(function() {
-                        checkHealth();
-                        statusDiv.style.display = 'none';
-                    }, 3000);
-                } else {
-                    statusDiv.style.background = 'rgba(239, 68, 68, 0.15)';
-                    statusDiv.style.borderLeft = '4px solid #ef4444';
-                    statusText.textContent = '✗ ' + result.message;
-                    statusText.style.color = '#fca5a5';
-                    showAlert(result.message, 'error');
-                }
-            })
-            .catch(function(e) {
-                statusDiv.style.background = 'rgba(239, 68, 68, 0.15)';
-                statusDiv.style.borderLeft = '4px solid #ef4444';
-                statusText.textContent = '✗ Fel vid sparande';
-                statusText.style.color = '#fca5a5';
-                showAlert('Kunde inte spara uppgifter', 'error');
-            });
-        }
-
         window.addEventListener('load', function() {
             refreshStatus();
-            checkHealth();
         });
     </script>
 </body>

@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Admin - Kia EV6 Climate Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #e2e8f0;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2rem;
+            color: #fff;
+        }
+
+        .subtitle {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #cbd5e1;
+            font-size: 1rem;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #60a5fa;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s;
+        }
+
+        .back-link:hover {
+            color: #93c5fd;
+        }
+
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .status-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            animation: pulse-dot 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #22c55e;
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        .credentials-info {
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            font-size: 0.95rem;
+        }
+
+        .credentials-info p {
+            margin: 8px 0;
+        }
+
+        .guide-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .guide-card h2 {
+            margin-bottom: 20px;
+            color: #fff;
+            font-size: 1.5rem;
+        }
+
+        .step {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border-left: 4px solid #60a5fa;
+        }
+
+        .step-number {
+            display: inline-block;
+            background: #60a5fa;
+            color: #1e3a8a;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: bold;
+            margin-right: 12px;
+        }
+
+        .step-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 12px;
+        }
+
+        .step-content {
+            margin-left: 44px;
+            color: #cbd5e1;
+            line-height: 1.6;
+        }
+
+        .code-box {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            word-break: break-all;
+            position: relative;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #60a5fa;
+            color: #1e3a8a;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #93c5fd;
+        }
+
+        .copy-btn:active {
+            background: #3b82f6;
+        }
+
+        .btn {
+            background: #60a5fa;
+            color: #1e3a8a;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            margin-top: 12px;
+        }
+
+        .btn:hover {
+            background: #93c5fd;
+            transform: translateY(-2px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .input-group {
+            margin: 16px 0;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .input-group input, .input-group textarea {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.3);
+            color: #e2e8f0;
+            font-size: 1rem;
+            font-family: 'Courier New', monospace;
+        }
+
+        .input-group input::placeholder,
+        .input-group textarea::placeholder {
+            color: #94a3b8;
+        }
+
+        .input-group textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .alert {
+            padding: 16px;
+            border-radius: 12px;
+            margin: 16px 0;
+            font-weight: 600;
+        }
+
+        .alert-success {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.4);
+            color: #86efac;
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+        }
+
+        .alert-info {
+            background: rgba(96, 165, 250, 0.2);
+            border: 1px solid rgba(96, 165, 250, 0.4);
+            color: #93c5fd;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .step-content {
+                margin-left: 0;
+                margin-top: 12px;
+            }
+
+            .code-box {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Tillbaka till huvudsidan</a>
+
+        <h1>🔧 Token-hantering</h1>
+        <p class="subtitle">Hantera dina Kia UVO credentials</p>
+
+        <!-- Current Status -->
+        <div class="status-card">
+            <div class="status-indicator">
+                <span class="status-dot disconnected" id="statusDot"></span>
+                <span id="statusText">Laddar status...</span>
+            </div>
+            <div class="credentials-info" id="credentialsInfo">
+                <p><strong>E-post:</strong> <span id="currentUsername">-</span></p>
+                <p><strong>Refresh Token:</strong> <span id="currentRefreshToken">-</span></p>
+            </div>
+        </div>
+
+        <!-- Token Guide -->
+        <div class="guide-card">
+            <h2>📋 Guide: Hämta nya tokens</h2>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">1</span>
+                    Öppna Chrome DevTools
+                </div>
+                <div class="step-content">
+                    <p>Öppna en ny flik i Chrome, tryck <strong>Ctrl+Shift+I</strong> (Windows) eller <strong>Cmd+Option+I</strong> (Mac).</p>
+                    <p>Tryck sedan <strong>Ctrl+Shift+P</strong> och skriv "network conditions".</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">2</span>
+                    Sätt User Agent
+                </div>
+                <div class="step-content">
+                    <p>Avmarkera "Use browser default" och klistra in följande User Agent:</p>
+                    <div class="code-box">
+                        <button class="copy-btn" onclick="copyUserAgent()">Kopiera</button>
+                        <span id="userAgent">Laddar...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">3</span>
+                    Logga in på Kia (Steg 1)
+                </div>
+                <div class="step-content">
+                    <p>Öppna denna URL i samma flik där du satte User Agent:</p>
+                    <div class="code-box">
+                        <button class="copy-btn" onclick="copyLoginUrl()">Kopiera</button>
+                        <span id="loginUrl" style="word-break: break-all;">Laddar...</span>
+                    </div>
+                    <button class="btn" id="openLoginBtn" onclick="openLoginUrl()">Öppna inloggningssida</button>
+                    <p style="margin-top: 12px; color: #fbbf24;">⚠️ Kom ihåg: Du måste ha satt User Agent först i samma flik!</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">4</span>
+                    Lös Captcha och logga in
+                </div>
+                <div class="step-content">
+                    <p>Lös reCAPTCHA och logga in med dina Kia-uppgifter. Efter lyckad inloggning omdirigeras du till Kias hemsida.</p>
+                    <p style="margin-top: 12px;"><strong>✓ När du ser Kia's hemsida är du klar med detta steg!</strong></p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">5</span>
+                    Öppna Authorization URL (Steg 2 - VIKTIGT!)
+                </div>
+                <div class="step-content">
+                    <p style="color: #fbbf24; font-weight: 600; margin-bottom: 12px;">⚠️ VIKTIGT: Detta steg måste göras i SAMMA flik där du just loggat in!</p>
+                    <p>Öppna denna URL i samma flik (den använder din session cookie):</p>
+                    <div class="code-box">
+                        <button class="copy-btn" onclick="copyAuthUrl()">Kopiera</button>
+                        <span id="authUrl" style="word-break: break-all;">Laddar...</span>
+                    </div>
+                    <button class="btn" id="openAuthBtn" onclick="openAuthUrl()">Öppna authorization-sida</button>
+                    <p style="margin-top: 12px; color: #86efac;">✓ Nu ska du få en blank sida med den URL vi behöver!</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">6</span>
+                    Klistra in Redirect URL
+                </div>
+                <div class="step-content">
+                    <p>Efter lyckad inloggning kommer du till en blank sida med en URL som börjar på:</p>
+                    <div class="code-box">
+                        <span id="redirectUrlPattern" style="word-break: break-all;">https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect?code=...</span>
+                    </div>
+                    <p>Kopiera <strong>hela URL:en</strong> från adressfältet och klistra in här:</p>
+
+                    <div class="input-group">
+                        <label for="redirectUrlInput">Redirect URL:</label>
+                        <textarea id="redirectUrlInput" placeholder="https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect?code=..."></textarea>
+                    </div>
+
+                    <button class="btn" id="exchangeBtn" onclick="exchangeCode()">
+                        <span id="exchangeBtnText">Hämta tokens</span>
+                        <span class="loading hidden" id="exchangeLoading"></span>
+                    </button>
+
+                    <div id="exchangeResult" class="hidden"></div>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-title">
+                    <span class="step-number">7</span>
+                    Spara credentials
+                </div>
+                <div class="step-content">
+                    <p>När du har fått dina tokens, fyll i formuläret nedan för att spara dem:</p>
+
+                    <div class="input-group">
+                        <label for="usernameInput">E-post:</label>
+                        <input type="email" id="usernameInput" placeholder="din@email.com">
+                    </div>
+
+                    <div class="input-group">
+                        <label for="refreshTokenInput">Refresh Token:</label>
+                        <textarea id="refreshTokenInput" placeholder="Klistra in refresh token här..."></textarea>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="accessTokenInput">Access Token (valfritt):</label>
+                        <textarea id="accessTokenInput" placeholder="Klistra in access token här..."></textarea>
+                    </div>
+
+                    <button class="btn" id="saveBtn" onclick="saveCredentials()">
+                        <span id="saveBtnText">💾 Spara och anslut</span>
+                        <span class="loading hidden" id="saveLoading"></span>
+                    </button>
+
+                    <div id="saveResult" class="hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let tokenUrls = null;
+
+        // Load token URLs and current status
+        async function loadStatus() {
+            try {
+                // Get token URLs
+                const urlsResponse = await fetch('/api/token-urls');
+                const urlsData = await urlsResponse.json();
+
+                if (urlsData.success) {
+                    tokenUrls = urlsData;
+                    document.getElementById('userAgent').textContent = urlsData.user_agent;
+                    document.getElementById('loginUrl').textContent = urlsData.login_url;
+                    document.getElementById('redirectUrlPattern').textContent = urlsData.redirect_url + '?code=...';
+                }
+
+                // Get authorization URL
+                loadAuthUrl();
+
+                // Get current credentials
+                const credsResponse = await fetch('/api/credentials');
+                const credsData = await credsResponse.json();
+
+                if (credsData.success) {
+                    document.getElementById('currentUsername').textContent = credsData.username || 'Ej konfigurerad';
+                    document.getElementById('currentRefreshToken').textContent = credsData.refresh_token || 'Ej konfigurerad';
+
+                    const statusDot = document.getElementById('statusDot');
+                    const statusText = document.getElementById('statusText');
+
+                    if (credsData.connected) {
+                        statusDot.className = 'status-dot connected';
+                        statusText.textContent = '✓ Ansluten till Kia';
+                    } else {
+                        statusDot.className = 'status-dot disconnected';
+                        statusText.textContent = '✗ Inte ansluten - Ange credentials nedan';
+                    }
+
+                    // Pre-fill username if available
+                    if (credsData.username) {
+                        document.getElementById('usernameInput').value = credsData.username;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load status:', error);
+                document.getElementById('statusText').textContent = '✗ Kunde inte ladda status';
+            }
+        }
+
+        function copyUserAgent() {
+            if (tokenUrls) {
+                navigator.clipboard.writeText(tokenUrls.user_agent);
+                const btn = event.target;
+                btn.textContent = '✓ Kopierad!';
+                setTimeout(() => btn.textContent = 'Kopiera', 2000);
+            }
+        }
+
+        function copyLoginUrl() {
+            if (tokenUrls) {
+                navigator.clipboard.writeText(tokenUrls.login_url);
+                const btn = event.target;
+                btn.textContent = '✓ Kopierad!';
+                setTimeout(() => btn.textContent = 'Kopiera', 2000);
+            }
+        }
+
+        function openLoginUrl() {
+            if (tokenUrls) {
+                window.open(tokenUrls.login_url, '_blank');
+            }
+        }
+
+        async function loadAuthUrl() {
+            try {
+                const response = await fetch('/api/get-auth-url');
+                const data = await response.json();
+
+                if (data.success) {
+                    document.getElementById('authUrl').textContent = data.auth_url;
+                } else {
+                    document.getElementById('authUrl').textContent = 'Kunde inte generera URL: ' + data.message;
+                }
+            } catch (error) {
+                console.error('Failed to load auth URL:', error);
+                document.getElementById('authUrl').textContent = 'Fel vid laddning av authorization URL';
+            }
+        }
+
+        function copyAuthUrl() {
+            const authUrl = document.getElementById('authUrl').textContent;
+            if (authUrl && !authUrl.startsWith('Kunde inte') && !authUrl.startsWith('Fel')) {
+                navigator.clipboard.writeText(authUrl);
+                const btn = event.target;
+                btn.textContent = '✓ Kopierad!';
+                setTimeout(() => btn.textContent = 'Kopiera', 2000);
+            }
+        }
+
+        function openAuthUrl() {
+            const authUrl = document.getElementById('authUrl').textContent;
+            if (authUrl && !authUrl.startsWith('Kunde inte') && !authUrl.startsWith('Fel') && !authUrl.startsWith('Laddar')) {
+                window.open(authUrl, '_blank');
+            } else {
+                alert('Vänta tills authorization URL har laddats');
+            }
+        }
+
+        async function exchangeCode() {
+            const redirectUrl = document.getElementById('redirectUrlInput').value.trim();
+
+            if (!redirectUrl) {
+                showResult('exchangeResult', 'Vänligen klistra in redirect URL', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('exchangeBtn');
+            const btnText = document.getElementById('exchangeBtnText');
+            const loading = document.getElementById('exchangeLoading');
+
+            btn.disabled = true;
+            btnText.classList.add('hidden');
+            loading.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/exchange-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ redirect_url: redirectUrl })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Auto-fill tokens
+                    document.getElementById('refreshTokenInput').value = data.refresh_token;
+                    document.getElementById('accessTokenInput').value = data.access_token;
+
+                    const expiryMsg = data.expires_in_hours
+                        ? `Token giltig i ca ${data.expires_in_hours} timmar.`
+                        : '';
+                    showResult('exchangeResult', `✓ Tokens hämtade! ${expiryMsg} Scrolla ner och spara dem.`, 'success');
+                } else {
+                    showResult('exchangeResult', `✗ ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showResult('exchangeResult', `✗ Nätverksfel: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btnText.classList.remove('hidden');
+                loading.classList.add('hidden');
+            }
+        }
+
+        async function saveCredentials() {
+            const username = document.getElementById('usernameInput').value.trim();
+            const refreshToken = document.getElementById('refreshTokenInput').value.trim();
+            const accessToken = document.getElementById('accessTokenInput').value.trim();
+
+            if (!username || !refreshToken) {
+                showResult('saveResult', '✗ E-post och refresh token krävs', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('saveBtn');
+            const btnText = document.getElementById('saveBtnText');
+            const loading = document.getElementById('saveLoading');
+
+            btn.disabled = true;
+            btnText.classList.add('hidden');
+            loading.classList.remove('hidden');
+
+            try {
+                const response = await fetch('/api/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: username,
+                        refresh_token: refreshToken,
+                        access_token: accessToken
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showResult('saveResult', `✓ ${data.message}`, 'success');
+
+                    // Reload status after 2 seconds
+                    setTimeout(() => {
+                        loadStatus();
+                        // Clear sensitive inputs
+                        document.getElementById('redirectUrlInput').value = '';
+                        document.getElementById('refreshTokenInput').value = '';
+                        document.getElementById('accessTokenInput').value = '';
+                    }, 2000);
+                } else {
+                    showResult('saveResult', `✗ ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showResult('saveResult', `✗ Nätverksfel: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btnText.classList.remove('hidden');
+                loading.classList.add('hidden');
+            }
+        }
+
+        function showResult(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.className = `alert alert-${type}`;
+            element.textContent = message;
+            element.classList.remove('hidden');
+        }
+
+        // Load status on page load
+        loadStatus();
+    </script>
+</body>
+</html>

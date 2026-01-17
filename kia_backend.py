@@ -84,6 +84,12 @@ def index():
     return send_from_directory('public', 'index.html')
 
 
+@app.route('/admin')
+def admin():
+    """Serve the admin page for token management"""
+    return send_from_directory('public', 'admin.html')
+
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -108,10 +114,237 @@ def get_credentials():
             'username': username,
             'refresh_token': '***' if has_refresh_token else '',
             'access_token': '***' if has_access_token else '',
-            'has_credentials': bool(username and has_refresh_token)
+            'has_credentials': bool(username and has_refresh_token),
+            'connected': token is not None and vehicle is not None
         })
     except Exception as e:
         logger.error(f"Get credentials error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/token-urls', methods=['GET'])
+def get_token_urls():
+    """Get the URLs needed for token generation flow"""
+    try:
+        from urllib.parse import quote
+
+        # Constants from get_kia_token.py
+        auth_domain = "https://idpconnect-eu.kia.com"
+        url_authorize_redirect = "https://www.kia.com/api/bin/oneid/login"
+        url_authorize_redirect_quoted = quote(url_authorize_redirect, safe='', encoding=None, errors=None)
+        url_redirect = "https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect"
+        client_id = "fdc85c00-0a2f-4c64-bcb4-2cfb1500730a"
+
+        # Step 1: Login URL
+        url_login = (
+            f"{auth_domain}/auth/api/v2/user/oauth2/authorize?"
+            f"ui_locales=de&"
+            f"scope=openid+profile+email+phone&"
+            f"response_type=code&"
+            f"client_id=peukiaidm-online-sales&"
+            f"redirect_uri={url_authorize_redirect_quoted}&"
+            f"state=aHR0cHM6Ly93d3cua2lhLmNvbS9kZS8"
+        )
+
+        # Step 2: Get connector_session_key (simplified - we'll do this client-side)
+        # For now, we'll generate a static auth URL that the user can use after login
+        # Note: In production, this would require getting the connector_session_key first
+
+        user_agent = (
+            "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) "
+            "AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
+        )
+
+        return jsonify({
+            'success': True,
+            'login_url': url_login,
+            'user_agent': user_agent,
+            'redirect_url': url_redirect,
+            'auth_domain': auth_domain,
+            'client_id': client_id
+        })
+    except Exception as e:
+        logger.error(f"Get token URLs error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/get-auth-url', methods=['GET'])
+def get_auth_url():
+    """Generate the authorization URL after login"""
+    try:
+        import requests
+        from urllib.parse import urlparse, parse_qs
+
+        # Constants
+        auth_domain = "https://idpconnect-eu.kia.com"
+        url_redirect = "https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect"
+        client_id = "fdc85c00-0a2f-4c64-bcb4-2cfb1500730a"
+        user_agent = (
+            "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) "
+            "AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
+        )
+
+        # Get connector_session_key
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": user_agent,
+            "Accept-Language": "de-DE,de;q=0.9",
+        })
+
+        url = (
+            f"{auth_domain}/auth/api/v2/user/oauth2/authorize?"
+            f"response_type=code&"
+            f"client_id={client_id}&"
+            f"redirect_uri={url_redirect}&"
+            f"lang=de&"
+            f"state=ccsp"
+        )
+
+        response = session.get(url)
+
+        try:
+            url_parsed = urlparse(response.url)
+            url_queries = parse_qs(url_parsed.query)
+            next_uri = url_queries["next_uri"][0]
+            next_uri_parsed = urlparse(next_uri)
+            next_uri_queries = parse_qs(next_uri_parsed.query)
+            connector_session_key = next_uri_queries["connector_session_key"][0]
+
+            # Build authorization URL
+            auth_url = (
+                f"{auth_domain}/auth/api/v2/user/oauth2/authorize?"
+                f"client_id={client_id}&"
+                f"redirect_uri={url_redirect}&"
+                f"response_type=code&"
+                f"scope=&"
+                f"state=ccsp&"
+                f"connector_client_id=hmgid1.0-{client_id}&"
+                f"ui_locales=&"
+                f"connector_scope=&"
+                f"connector_session_key={connector_session_key}"
+            )
+
+            return jsonify({
+                'success': True,
+                'auth_url': auth_url
+            })
+        except Exception as e:
+            logger.error(f"Could not extract connector_session_key: {str(e)}")
+            return jsonify({
+                'success': False,
+                'message': f'Kunde inte generera authorization URL: {str(e)}'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Get auth URL error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/exchange-code', methods=['POST'])
+def exchange_code():
+    """Exchange authorization code for tokens"""
+    try:
+        import requests
+        from urllib.parse import urlparse, parse_qs
+        import base64
+
+        data = request.get_json()
+        redirect_url = data.get('redirect_url', '')
+
+        if not redirect_url:
+            return jsonify({
+                'success': False,
+                'message': 'Redirect URL krävs'
+            }), 400
+
+        # Extract authorization code from URL
+        try:
+            url_parsed = urlparse(redirect_url)
+            url_queries = parse_qs(url_parsed.query)
+            authorization_code = url_queries["code"][0]
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'Kunde inte extrahera authorization code från URL: {str(e)}'
+            }), 400
+
+        # Constants
+        auth_domain = "https://idpconnect-eu.kia.com"
+        url_redirect = "https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect"
+        client_id = "fdc85c00-0a2f-4c64-bcb4-2cfb1500730a"
+
+        # Exchange code for tokens
+        token_url = f"{auth_domain}/auth/api/v2/user/oauth2/token"
+        token_data = {
+            "grant_type": "authorization_code",
+            "code": authorization_code,
+            "redirect_uri": url_redirect,
+            "client_id": client_id,
+            "client_secret": "secret",
+        }
+
+        response = requests.post(token_url, data=token_data)
+
+        if response.status_code == 200:
+            tokens = response.json()
+
+            # Try to decode token to get expiry time (simple base64 decode of JWT payload)
+            expires_in_hours = 24  # Default
+            try:
+                access_token = tokens.get('access_token', '')
+                # JWT format: header.payload.signature
+                parts = access_token.split('.')
+                if len(parts) >= 2:
+                    # Decode payload (add padding if needed)
+                    payload = parts[1]
+                    padding = 4 - (len(payload) % 4)
+                    if padding != 4:
+                        payload += '=' * padding
+
+                    decoded_bytes = base64.urlsafe_b64decode(payload)
+                    decoded_str = decoded_bytes.decode('utf-8')
+
+                    # Parse JSON
+                    import json as json_module
+                    payload_data = json_module.loads(decoded_str)
+
+                    if 'exp' in payload_data:
+                        from datetime import datetime, timezone
+                        exp_timestamp = payload_data['exp']
+                        exp_datetime = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
+                        now = datetime.now(timezone.utc)
+                        expires_in_seconds = (exp_datetime - now).total_seconds()
+                        expires_in_hours = max(1, int(expires_in_seconds / 3600))  # At least 1 hour
+            except Exception as e:
+                logger.warning(f"Could not decode token expiry: {str(e)}")
+
+            return jsonify({
+                'success': True,
+                'refresh_token': tokens.get('refresh_token'),
+                'access_token': tokens.get('access_token'),
+                'expires_in_hours': expires_in_hours
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'Fel vid hämtning av tokens: {response.text}'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Exchange code error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'message': str(e)

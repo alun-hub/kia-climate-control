@@ -29,10 +29,13 @@ En modern webbapplikation för att styra klimatanläggningen i din Kia EV6 via K
 - ✅ Dörr- och fönsterstatus
 - ✅ Lås-status
 
-### 🔧 Inställningar
-- ✅ Uppdatera Kia UVO credentials via webbgränssnitt
-- ✅ Ingen manuell .env-redigering krävs
-- ✅ Anslutningsstatus i realtid
+### 🔧 Token-hantering (Nytt!)
+- ✅ **Inbyggd token-hantering** - Ingen separat script behövs!
+- ✅ Visuell steg-för-steg guide för att hämta tokens
+- ✅ Automatisk token-utbyte direkt i webbgränssnittet
+- ✅ Kopiera User Agent och login-URL med en knapptryckning
+- ✅ Real-time anslutningsstatus
+- ✅ Uppdatera credentials utan att editera filer manuellt
 
 ### 🎨 Användargränssnitt
 - ✅ Modernt gradient-baserat UI
@@ -64,23 +67,21 @@ En modern webbapplikation för att styra klimatanläggningen i din Kia EV6 via K
    pip install -r requirements.txt
    ```
 
-4. **Konfigurera .env**
-   ```env
-   KIA_USERNAME=din@email.com
-   KIA_REFRESH_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
-   KIA_ACCESS_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
-   PORT=5000
-   ```
-
-5. **Starta servern**
+4. **Starta servern**
    ```bash
    python kia_backend.py
    ```
 
-6. **Öppna webbläsaren**
-   ```
-   http://localhost:5000
-   ```
+5. **Konfigurera tokens via webbgränssnittet**
+
+   **Nytt sätt (Rekommenderat):**
+   1. Öppna `http://localhost:5000`
+   2. Klicka på "🔧 Token-hantering" i övre högra hörnet
+   3. Följ den visuella guiden för att hämta dina tokens
+   4. Spara direkt i webbgränssnittet - klart!
+
+   **Gammalt sätt (Fortfarande fungerar):**
+   - Kör `python get_kia_token.py` och skapa en `.env` fil manuellt
 
 ---
 
