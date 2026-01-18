@@ -375,41 +375,41 @@ def update_credentials():
             os.environ['KIA_ACCESS_TOKEN'] = new_access_token
 
         # Save to .env file for persistence
-        env_path = '.env'
+        # Check both container path and local path
+        env_path = '/app/.env' if os.path.exists('/app/.env') or os.path.exists('/app') else '.env'
+
+        # Read existing .env content to preserve other variables
+        env_vars = {}
         if os.path.exists(env_path):
-            # Read existing .env
-            with open(env_path, 'r') as f:
-                lines = f.readlines()
+            try:
+                with open(env_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            env_vars[key] = value
+            except Exception as e:
+                logger.warning(f"Could not read existing .env: {str(e)}")
 
-            # Update credentials in .env
-            updated_username = False
-            updated_refresh = False
-            updated_access = False
+        # Update credentials
+        env_vars['KIA_USERNAME'] = new_username
+        env_vars['KIA_REFRESH_TOKEN'] = new_refresh_token
+        if new_access_token:
+            env_vars['KIA_ACCESS_TOKEN'] = new_access_token
+
+        # Ensure PORT is set
+        if 'PORT' not in env_vars:
+            env_vars['PORT'] = '5000'
+
+        # Write updated .env file
+        try:
             with open(env_path, 'w') as f:
-                for line in lines:
-                    if line.startswith('KIA_USERNAME='):
-                        f.write(f'KIA_USERNAME={new_username}\n')
-                        updated_username = True
-                    elif line.startswith('KIA_REFRESH_TOKEN='):
-                        f.write(f'KIA_REFRESH_TOKEN={new_refresh_token}\n')
-                        updated_refresh = True
-                    elif line.startswith('KIA_ACCESS_TOKEN='):
-                        if new_access_token:
-                            f.write(f'KIA_ACCESS_TOKEN={new_access_token}\n')
-                            updated_access = True
-                        # Skip if no access token provided
-                    else:
-                        f.write(line)
-
-                # Add if not found
-                if not updated_username:
-                    f.write(f'\nKIA_USERNAME={new_username}\n')
-                if not updated_refresh:
-                    f.write(f'KIA_REFRESH_TOKEN={new_refresh_token}\n')
-                if not updated_access and new_access_token:
-                    f.write(f'KIA_ACCESS_TOKEN={new_access_token}\n')
-
-            logger.info("Credentials updated in .env file")
+                for key, value in env_vars.items():
+                    f.write(f'{key}={value}\n')
+            logger.info(f"Credentials saved to {env_path}")
+        except Exception as e:
+            logger.error(f"Failed to save credentials to {env_path}: {str(e)}")
+            raise
 
         # Reinitialize connection
         logger.info("Återansluter med nya uppgifter...")
