@@ -898,23 +898,56 @@ if __name__ == '__main__':
                         logger.info(
                             f"✓ Kör schemalagd klimatstart: {schedule.get('name')}")
 
-                        try:
-                            # Create climate options
-                            options = ClimateRequestOptions()
-                            options.set_temp = schedule.get('temperature', 21)
-                            options.defrost = schedule.get('defrost', False)
-                            options.climate = True
-                            options.heating = 1
+                        max_attempts = 5
+                        climate_started = False
 
-                            # Start climate
-                            result = api.start_climate(token, vehicle, options)
-                            logger.info(
-                                f"✓ Klimat startad från schema '{schedule.get('name')}': {result}")
-                        except Exception as e:
+                        for attempt in range(1, max_attempts + 1):
+                            try:
+                                logger.info(f"Försök {attempt}/{max_attempts} att starta klimat...")
+
+                                # Create climate options
+                                options = ClimateRequestOptions()
+                                options.set_temp = schedule.get('temperature', 21)
+                                options.defrost = schedule.get('defrost', False)
+                                options.climate = True
+                                options.heating = 1
+
+                                # Start climate
+                                result = api.start_climate(token, vehicle, options)
+                                logger.info(f"API-anrop returnerade: {result}")
+
+                                # Wait a bit before checking status
+                                time.sleep(10)
+
+                                # Check if climate actually started
+                                try:
+                                    api.update_vehicle_with_cached_state(token, vehicle)
+                                    if hasattr(vehicle, 'air_control_is_on') and vehicle.air_control_is_on:
+                                        logger.info(
+                                            f"✓ Klimat verifierad som startad från schema '{schedule.get('name')}' efter {attempt} försök")
+                                        climate_started = True
+                                        break
+                                    else:
+                                        logger.warning(
+                                            f"Klimat verkar inte ha startats (försök {attempt}/{max_attempts})")
+                                except Exception as status_error:
+                                    logger.warning(f"Kunde inte verifiera status: {str(status_error)}")
+
+                                # Wait before next attempt if not the last one
+                                if attempt < max_attempts:
+                                    time.sleep(5)
+
+                            except Exception as e:
+                                logger.error(
+                                    f"✗ Fel vid klimatstart försök {attempt}/{max_attempts}: {str(e)}")
+                                import traceback
+                                logger.error(traceback.format_exc())
+                                if attempt < max_attempts:
+                                    time.sleep(5)
+
+                        if not climate_started:
                             logger.error(
-                                f"✗ Fel vid schemalagd klimatstart: {str(e)}")
-                            import traceback
-                            logger.error(traceback.format_exc())
+                                f"✗ Misslyckades starta klimat efter {max_attempts} försök för schema '{schedule.get('name')}'")
 
                 # Sleep for 60 seconds before next check
                 time.sleep(60)
