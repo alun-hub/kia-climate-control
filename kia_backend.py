@@ -1,111 +1,316 @@
 #!/usr/bin/env python3
 """
 Kia EV6 Climate Control Backend (Python)
-Använder hyundai_kia_connect_api för att kommunicera med Kia
+Stabiliserad schemaläggning + token refresh
 """
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from hyundai_kia_connect_api.KiaUvoApiEU import KiaUvoApiEU
-from hyundai_kia_connect_api.const import BRANDS
 from hyundai_kia_connect_api.ApiImplType1 import ClimateRequestOptions
+from hyundai_kia_connect_api.exceptions import AuthenticationError
 import os
 from dotenv import load_dotenv
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import json
 import threading
 import time
+import errno
 
-# Load environment variables
+# ---------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------
+
 load_dotenv()
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 CORS(app)
 
-# Global variables
 api = None
 token = None
 vehicle = None
+api_lock = threading.RLock()
+init_cooldown_until = 0
+init_backoff_seconds = 0
+last_vehicle_refresh_ts = 0
+last_success_at = None
+last_error = None
+last_error_at = None
+last_cooldown_log_ts = 0
 
+# ---------------------------------------------------------------------
+# Kia helpers
+# ---------------------------------------------------------------------
 
 def initialize_kia():
-    """Initialize the Kia API connection"""
-    global api, token, vehicle
+    """(Re)initialize Kia API connection"""
+    global api, token, vehicle, init_cooldown_until, init_backoff_seconds
+    global last_success_at, last_error, last_error_at
 
     try:
-        logger.info("Initierar Kia API...")
+        with api_lock:
+            now = time.time()
+            if now < init_cooldown_until:
+                wait = int(init_cooldown_until - now)
+                logger.warning(f"Initierar ej Kia API (cooldown {wait}s kvar)")
+                return False
 
-        # Create API client
-        REGION = 1  # Europe
-        BRAND = 1   # Kia
-        LANGUAGE = "sv"
+            logger.info("Initierar Kia API...")
 
-        api = KiaUvoApiEU(REGION, BRAND, LANGUAGE)
+            api = KiaUvoApiEU(
+                region=1,      # Europe
+                brand=1,       # Kia
+                language="sv"
+            )
 
-        # Login with refresh token as password
-        username = os.getenv('KIA_USERNAME')
-        refresh_token = os.getenv('KIA_REFRESH_TOKEN')
+            username = os.getenv("KIA_USERNAME")
+            refresh_token = os.getenv("KIA_REFRESH_TOKEN")
 
-        logger.info(f"Loggar in som {username}...")
-        token = api.login(username, refresh_token)
+            token = api.login(username, refresh_token)
 
-        # Get vehicles
-        logger.info("Hämtar fordon...")
-        vehicles = api.get_vehicles(token)
+            vehicles = api.get_vehicles(token)
+            if not vehicles:
+                raise Exception("Inga fordon hittades")
 
-        if not vehicles or len(vehicles) == 0:
-            raise Exception("Inga fordon hittades på kontot")
+            vehicle = vehicles[0]
 
-        vehicle = vehicles[0]
-        logger.info(
-            f"✓ Ansluten till fordon: {vehicle.id if hasattr(vehicle, 'id') else 'Kia EV6'}")
-
-        return True
+            logger.info(f"✓ Ansluten till fordon: {getattr(vehicle, 'id', 'EV6')}")
+            last_success_at = datetime.now().isoformat()
+            last_error = None
+            last_error_at = None
+            init_cooldown_until = 0
+            init_backoff_seconds = 0
+            return True
 
     except Exception as e:
-        logger.error(f"✗ Fel vid initiering: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        last_error = str(e)
+        last_error_at = datetime.now().isoformat()
+        msg = str(e).lower()
+        if "exceeds number of requests" in msg:
+            init_backoff_seconds = max(init_backoff_seconds * 2, 120)
+            init_backoff_seconds = min(init_backoff_seconds, 600)
+            init_cooldown_until = time.time() + init_backoff_seconds
+            logger.error(f"✗ Kia init misslyckades: {e} (cooldown {init_backoff_seconds}s)")
+        else:
+            init_cooldown_until = time.time() + 30
+        logger.error(f"✗ Kia init misslyckades: {e}")
+        return False
+
+def get_cooldown_seconds():
+    now = time.time()
+    if now < init_cooldown_until:
+        return int(init_cooldown_until - now)
+    return 0
+
+
+def _token_is_expired_or_near_expiry(margin_seconds=300):
+    """Check if the current access token is expired or will expire soon."""
+    if token is None:
+        return True
+    try:
+        now = datetime.now(timezone.utc)
+        expires_at = token.valid_until
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return now >= (expires_at - timedelta(seconds=margin_seconds))
+    except Exception:
         return False
 
 
-# Initialize on startup
+def _refresh_token_if_needed():
+    """Attempt to refresh the access token. Returns True on success."""
+    global token, last_success_at, last_error, last_error_at
+    try:
+        logger.info("Förnyar access token...")
+        new_token = api.refresh_access_token(token)
+        if isinstance(new_token, object) and hasattr(new_token, 'access_token'):
+            token = new_token
+            last_success_at = datetime.now().isoformat()
+            last_error = None
+            last_error_at = None
+            logger.info("✓ Access token förnyad")
+            return True
+        else:
+            logger.warning("refresh_access_token returnerade oväntat resultat, gör full re-init")
+            return False
+    except Exception as e:
+        logger.warning(f"Token-förnyelse misslyckades: {e}")
+        return False
+
+
+def invalidate_session():
+    """Mark the current session as invalid so next ensure_token triggers re-init."""
+    global token
+    token = None
+    logger.info("Session ogiltigförklarad – nästa anrop gör re-login")
+
+
+def ensure_token(force_reinit=False, allow_init=True):
+    """Ensure we have a valid, non-expired token/session.
+
+    If allow_init is False, never reinitialize (useful to avoid background retries).
+    """
+    global api, token, vehicle, last_vehicle_refresh_ts, last_cooldown_log_ts
+
+    try:
+        # Guard shared API/session state across threads
+        with api_lock:
+            needs_init = force_reinit or api is None or token is None or vehicle is None
+
+            # Proactively refresh if token is about to expire (5 min margin)
+            if not needs_init and _token_is_expired_or_near_expiry():
+                logger.info("Access token utgången eller nära utgång")
+                if _refresh_token_if_needed():
+                    return True
+                # Refresh failed, need full re-init
+                needs_init = True
+
+            if needs_init:
+                cooldown = get_cooldown_seconds()
+                if cooldown > 0 or not allow_init:
+                    now = time.time()
+                    if now - last_cooldown_log_ts > 60:
+                        logger.warning("Initierar ej Kia API (cooldown/allow_init)")
+                        last_cooldown_log_ts = now
+                    return False
+
+                logger.warning("Token/API saknas eller force_reinit – initierar om")
+                return initialize_kia()
+
+            return True
+
+    except Exception as e:
+        logger.error(f"ensure_token misslyckades: {e}")
+        return False
+
+
+def build_climate_options(temperature, defrost):
+    """Correct & stable climate options for EV6 EU"""
+    options = ClimateRequestOptions()
+    options.climate = True
+    options.heating = 1
+    options.airCtrl = True
+    options.defrost = bool(defrost)
+    options.set_temp = int(temperature)
+    return options
+
+
+def _send_climate_start(options):
+    """Send start_climate command, handling auth errors. Returns (ok, error_msg)."""
+    try:
+        with api_lock:
+            api.start_climate(token, vehicle, options)
+        return True, None
+    except AuthenticationError as e:
+        logger.warning(f"Token utgången vid klimatstart: {e}")
+        invalidate_session()
+        if not ensure_token():
+            return False, "Token utgången, kunde inte förnya"
+        try:
+            with api_lock:
+                api.start_climate(token, vehicle, options)
+            return True, None
+        except Exception as e2:
+            return False, str(e2)
+    except Exception as e:
+        return False, str(e)
+
+
+def _verify_climate_active():
+    """Check if climate is actually running. Returns True/False, or None if check failed."""
+    try:
+        with api_lock:
+            api.update_vehicle_with_cached_state(token, vehicle)
+        return getattr(vehicle, 'air_control_is_on', False)
+    except AuthenticationError:
+        invalidate_session()
+        if not ensure_token():
+            return None
+        try:
+            with api_lock:
+                api.update_vehicle_with_cached_state(token, vehicle)
+            return getattr(vehicle, 'air_control_is_on', False)
+        except Exception:
+            return None
+    except Exception as e:
+        logger.warning(f"Kunde inte verifiera klimatstatus: {e}")
+        return None
+
+
+def start_climate_verified(options, max_attempts=2, verify_delay=25):
+    """Start climate, verify it's running, retry if not.
+
+    Returns (success: bool, message: str, verified: bool).
+    """
+    for attempt in range(1, max_attempts + 1):
+        ok, err = _send_climate_start(options)
+        if not ok:
+            return False, f"Klimatstart misslyckades: {err}", False
+
+        logger.info(f"Klimatstart-kommando skickat (försök {attempt}/{max_attempts}), väntar {verify_delay}s...")
+        time.sleep(verify_delay)
+
+        is_active = _verify_climate_active()
+
+        if is_active is True:
+            logger.info(f"✓ Klimat verifierad som aktiv (försök {attempt})")
+            return True, "Klimat startad och verifierad", True
+
+        if is_active is None:
+            logger.warning(f"Kunde inte verifiera klimat (försök {attempt})")
+            # Can't verify — assume the command went through
+            return True, "Klimat startad (kunde inte verifiera status)", False
+
+        # is_active is False
+        if attempt < max_attempts:
+            logger.warning(f"Klimat INTE aktiv efter försök {attempt} – försöker igen")
+        else:
+            logger.error(f"Klimat INTE aktiv efter {max_attempts} försök")
+
+    return False, f"Klimat startades {max_attempts} gånger men verifiering visar att den inte är aktiv", False
+
+
+# Init on startup
 initialize_kia()
 
+# ---------------------------------------------------------------------
+# Basic routes
+# ---------------------------------------------------------------------
 
 @app.route('/')
 def index():
-    """Serve the frontend"""
     return send_from_directory('public', 'index.html')
-
 
 @app.route('/admin')
 def admin():
-    """Serve the admin page for token management"""
     return send_from_directory('public', 'admin.html')
 
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    """Health check endpoint"""
+@app.route('/api/health')
+def health():
     return jsonify({
-        'status': 'ok',
-        'connected': token is not None and vehicle is not None,
-        'timestamp': datetime.now().isoformat()
+        "status": "ok",
+        "connected": api is not None and token is not None and vehicle is not None,
+        "cooldown_seconds": get_cooldown_seconds(),
+        "last_success_at": last_success_at,
+        "last_error": last_error,
+        "last_error_at": last_error_at,
+        "timestamp": datetime.now().isoformat()
     })
 
+# ---------------------------------------------------------------------
+# Token/credentials management
+# ---------------------------------------------------------------------
 
 @app.route('/api/credentials', methods=['GET'])
 def get_credentials():
-    """Get current credentials (username only, not the full tokens for security)"""
+    """Get current credentials (username only, not full tokens)."""
     try:
         username = os.getenv('KIA_USERNAME', '')
-        # Don't send the full tokens, just indicate if they exist
         has_refresh_token = bool(os.getenv('KIA_REFRESH_TOKEN'))
         has_access_token = bool(os.getenv('KIA_ACCESS_TOKEN'))
 
@@ -127,18 +332,16 @@ def get_credentials():
 
 @app.route('/api/token-urls', methods=['GET'])
 def get_token_urls():
-    """Get the URLs needed for token generation flow"""
+    """Get the URLs needed for token generation flow."""
     try:
         from urllib.parse import quote
 
-        # Constants from get_kia_token.py
         auth_domain = "https://idpconnect-eu.kia.com"
         url_authorize_redirect = "https://www.kia.com/api/bin/oneid/login"
         url_authorize_redirect_quoted = quote(url_authorize_redirect, safe='', encoding=None, errors=None)
         url_redirect = "https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect"
         client_id = "fdc85c00-0a2f-4c64-bcb4-2cfb1500730a"
 
-        # Step 1: Login URL
         url_login = (
             f"{auth_domain}/auth/api/v2/user/oauth2/authorize?"
             f"ui_locales=de&"
@@ -148,10 +351,6 @@ def get_token_urls():
             f"redirect_uri={url_authorize_redirect_quoted}&"
             f"state=aHR0cHM6Ly93d3cua2lhLmNvbS9kZS8"
         )
-
-        # Step 2: Get connector_session_key (simplified - we'll do this client-side)
-        # For now, we'll generate a static auth URL that the user can use after login
-        # Note: In production, this would require getting the connector_session_key first
 
         user_agent = (
             "Mozilla/5.0 (Linux; Android 4.1.1; Galaxy Nexus Build/JRO03C) "
@@ -176,12 +375,11 @@ def get_token_urls():
 
 @app.route('/api/get-auth-url', methods=['GET'])
 def get_auth_url():
-    """Generate the authorization URL after login"""
+    """Generate the authorization URL after login."""
     try:
         import requests
         from urllib.parse import urlparse, parse_qs
 
-        # Constants
         auth_domain = "https://idpconnect-eu.kia.com"
         url_redirect = "https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect"
         client_id = "fdc85c00-0a2f-4c64-bcb4-2cfb1500730a"
@@ -190,7 +388,6 @@ def get_auth_url():
             "AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.166 Mobile Safari/535.19_CCS_APP_AOS"
         )
 
-        # Get connector_session_key
         session = requests.Session()
         session.headers.update({
             "User-Agent": user_agent,
@@ -216,7 +413,6 @@ def get_auth_url():
             next_uri_queries = parse_qs(next_uri_parsed.query)
             connector_session_key = next_uri_queries["connector_session_key"][0]
 
-            # Build authorization URL
             auth_url = (
                 f"{auth_domain}/auth/api/v2/user/oauth2/authorize?"
                 f"client_id={client_id}&"
@@ -243,8 +439,6 @@ def get_auth_url():
 
     except Exception as e:
         logger.error(f"Get auth URL error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'message': str(e)
@@ -253,13 +447,13 @@ def get_auth_url():
 
 @app.route('/api/exchange-code', methods=['POST'])
 def exchange_code():
-    """Exchange authorization code for tokens"""
+    """Exchange authorization code for tokens."""
     try:
         import requests
         from urllib.parse import urlparse, parse_qs
         import base64
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         redirect_url = data.get('redirect_url', '')
 
         if not redirect_url:
@@ -268,7 +462,6 @@ def exchange_code():
                 'message': 'Redirect URL krävs'
             }), 400
 
-        # Extract authorization code from URL
         try:
             url_parsed = urlparse(redirect_url)
             url_queries = parse_qs(url_parsed.query)
@@ -279,12 +472,10 @@ def exchange_code():
                 'message': f'Kunde inte extrahera authorization code från URL: {str(e)}'
             }), 400
 
-        # Constants
         auth_domain = "https://idpconnect-eu.kia.com"
         url_redirect = "https://prd.eu-ccapi.kia.com:8080/api/v1/user/oauth2/redirect"
         client_id = "fdc85c00-0a2f-4c64-bcb4-2cfb1500730a"
 
-        # Exchange code for tokens
         token_url = f"{auth_domain}/auth/api/v2/user/oauth2/token"
         token_data = {
             "grant_type": "authorization_code",
@@ -299,14 +490,11 @@ def exchange_code():
         if response.status_code == 200:
             tokens = response.json()
 
-            # Try to decode token to get expiry time (simple base64 decode of JWT payload)
-            expires_in_hours = 24  # Default
+            expires_in_hours = 24
             try:
                 access_token = tokens.get('access_token', '')
-                # JWT format: header.payload.signature
                 parts = access_token.split('.')
                 if len(parts) >= 2:
-                    # Decode payload (add padding if needed)
                     payload = parts[1]
                     padding = 4 - (len(payload) % 4)
                     if padding != 4:
@@ -315,17 +503,16 @@ def exchange_code():
                     decoded_bytes = base64.urlsafe_b64decode(payload)
                     decoded_str = decoded_bytes.decode('utf-8')
 
-                    # Parse JSON
                     import json as json_module
                     payload_data = json_module.loads(decoded_str)
 
                     if 'exp' in payload_data:
-                        from datetime import datetime, timezone
+                        from datetime import timezone
                         exp_timestamp = payload_data['exp']
                         exp_datetime = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
                         now = datetime.now(timezone.utc)
                         expires_in_seconds = (exp_datetime - now).total_seconds()
-                        expires_in_hours = max(1, int(expires_in_seconds / 3600))  # At least 1 hour
+                        expires_in_hours = max(1, int(expires_in_seconds / 3600))
             except Exception as e:
                 logger.warning(f"Could not decode token expiry: {str(e)}")
 
@@ -343,8 +530,6 @@ def exchange_code():
 
     except Exception as e:
         logger.error(f"Exchange code error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'message': str(e)
@@ -353,11 +538,9 @@ def exchange_code():
 
 @app.route('/api/credentials', methods=['POST'])
 def update_credentials():
-    """Update credentials and reinitialize connection"""
-    global api, token, vehicle
-
+    """Update credentials and reinitialize connection."""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         new_username = data.get('username')
         new_refresh_token = data.get('refresh_token')
         new_access_token = data.get('access_token', '')
@@ -368,17 +551,13 @@ def update_credentials():
                 'message': 'Både e-post och refresh token krävs'
             }), 400
 
-        # Update environment variables (in-memory)
         os.environ['KIA_USERNAME'] = new_username
         os.environ['KIA_REFRESH_TOKEN'] = new_refresh_token
         if new_access_token:
             os.environ['KIA_ACCESS_TOKEN'] = new_access_token
 
-        # Save to .env file for persistence
-        # Check both container path and local path
         env_path = '/app/.env' if os.path.exists('/app/.env') or os.path.exists('/app') else '.env'
 
-        # Read existing .env content to preserve other variables
         env_vars = {}
         if os.path.exists(env_path):
             try:
@@ -391,17 +570,13 @@ def update_credentials():
             except Exception as e:
                 logger.warning(f"Could not read existing .env: {str(e)}")
 
-        # Update credentials
         env_vars['KIA_USERNAME'] = new_username
         env_vars['KIA_REFRESH_TOKEN'] = new_refresh_token
         if new_access_token:
             env_vars['KIA_ACCESS_TOKEN'] = new_access_token
-
-        # Ensure PORT is set
         if 'PORT' not in env_vars:
             env_vars['PORT'] = '5000'
 
-        # Write updated .env file
         try:
             with open(env_path, 'w') as f:
                 for key, value in env_vars.items():
@@ -411,7 +586,6 @@ def update_credentials():
             logger.error(f"Failed to save credentials to {env_path}: {str(e)}")
             raise
 
-        # Reinitialize connection
         logger.info("Återansluter med nya uppgifter...")
         if initialize_kia():
             return jsonify({
@@ -426,288 +600,199 @@ def update_credentials():
 
     except Exception as e:
         logger.error(f"Update credentials error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
             'message': f'Fel vid uppdatering: {str(e)}'
         }), 500
 
 
-def ensure_token():
-    """Ensure we have a valid token, refresh if needed"""
-    global api, token, vehicle
+# ---------------------------------------------------------------------
+# Vehicle status
+# ---------------------------------------------------------------------
 
-    if api is None or token is None or vehicle is None:
-        logger.warning("Token/API saknas, försöker återansluta...")
-        if not initialize_kia():
-            return False
-    return True
+@app.route('/api/status')
+def status():
+    if not ensure_token():
+        cooldown = get_cooldown_seconds()
+        if cooldown > 0:
+            return jsonify(success=False, code="rate_limit", message=f"Rate-limit – försök igen om {cooldown}s", retry_after=cooldown), 429
+        return jsonify(success=False, code="not_connected", message="Ej ansluten"), 401
 
-
-@app.route('/api/status', methods=['GET'])
-def get_status():
-    """Get vehicle status"""
     try:
-        if not ensure_token():
-            return jsonify({
-                'success': False,
-                'message': 'Inte ansluten till fordon'
-            }), 401
-
-        logger.info("Hämtar fordonsstatus...")
-
-        # Update vehicle with cached state
-        try:
+        with api_lock:
             api.update_vehicle_with_cached_state(token, vehicle)
-        except Exception as e:
-            # If token expired, try to reinitialize
-            logger.warning(f"Fel vid uppdatering, försöker återansluta: {str(e)}")
-            if initialize_kia():
+    except AuthenticationError as e:
+        logger.warning(f"Token utgången vid statushämtning: {e} – försöker förnya")
+        invalidate_session()
+        if not ensure_token():
+            return jsonify(success=False, code="not_connected", message="Token utgången, kunde inte förnya"), 401
+        try:
+            with api_lock:
                 api.update_vehicle_with_cached_state(token, vehicle)
-            else:
-                raise e
-
-        # Get door status
-        door_status = {
-            'driver': False,
-            'passenger': False,
-            'backLeft': False,
-            'backRight': False,
-            'hood': False,
-            'trunk': False
-        }
-
-        if hasattr(vehicle, 'data') and vehicle.data:
-            status = vehicle.data.get('vehicleStatus', {})
-            door_status = {
-                'driver': status.get('doorOpen', {}).get('frontLeft') == 1,
-                'passenger': status.get('doorOpen', {}).get('frontRight') == 1,
-                'backLeft': status.get('doorOpen', {}).get('backLeft') == 1,
-                'backRight': status.get('doorOpen', {}).get('backRight') == 1,
-                'hood': status.get('hoodOpen') == 1,
-                'trunk': status.get('trunkOpen') == 1
-            }
-
-        # Get window status
-        window_status = {
-            'driver': False,
-            'passenger': False,
-            'backLeft': False,
-            'backRight': False
-        }
-
-        if hasattr(vehicle, 'data') and vehicle.data:
-            status = vehicle.data.get('vehicleStatus', {})
-            window_status = {
-                'driver': status.get('windowOpen', {}).get('frontLeft') == 1,
-                'passenger': status.get('windowOpen', {}).get('frontRight') == 1,
-                'backLeft': status.get('windowOpen', {}).get('backLeft') == 1,
-                'backRight': status.get('windowOpen', {}).get('backRight') == 1
-            }
-
-        vehicle_data = {
-            'model': 'Kia EV6',
-            'vin': vehicle.id if hasattr(vehicle, 'id') else 'N/A',
-            'battery': vehicle.ev_battery_percentage if hasattr(vehicle, 'ev_battery_percentage') else 0,
-            'range': vehicle.ev_driving_range if hasattr(vehicle, 'ev_driving_range') else 0,
-            'charging': vehicle.ev_battery_is_charging if hasattr(vehicle, 'ev_battery_is_charging') else False,
-            'pluggedIn': vehicle.ev_battery_is_plugged_in if hasattr(vehicle, 'ev_battery_is_plugged_in') else False,
-            'locked': vehicle.is_locked if hasattr(vehicle, 'is_locked') else False,
-            'climateActive': vehicle.air_control_is_on if hasattr(vehicle, 'air_control_is_on') else False,
-            'doors': door_status,
-            'windows': window_status,
-            'location': {
-                'lat': vehicle.location_latitude if hasattr(vehicle, 'location_latitude') else None,
-                'lon': vehicle.location_longitude if hasattr(vehicle, 'location_longitude') else None
-            },
-            'lastUpdated': datetime.now().isoformat()
-        }
-
-        return jsonify({
-            'success': True,
-            'data': vehicle_data
-        })
-
+        except Exception as e2:
+            logger.exception(f"Status-fel efter token-förnyelse: {e2}")
+            return jsonify(success=False, code="status_error", message="Kunde inte hämta status"), 502
     except Exception as e:
-        logger.error(f"Status error: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Status-fel: {e}")
+        return jsonify(success=False, code="status_error", message="Kunde inte hämta status"), 502
 
+    # Default door/window status
+    door_status = {
+        "driver": False,
+        "passenger": False,
+        "backLeft": False,
+        "backRight": False,
+        "hood": False,
+        "trunk": False
+    }
+    window_status = {
+        "driver": False,
+        "passenger": False,
+        "backLeft": False,
+        "backRight": False
+    }
+
+    if hasattr(vehicle, 'data') and vehicle.data:
+        status_data = vehicle.data.get('vehicleStatus', {})
+        door_status = {
+            "driver": status_data.get('doorOpen', {}).get('frontLeft') == 1,
+            "passenger": status_data.get('doorOpen', {}).get('frontRight') == 1,
+            "backLeft": status_data.get('doorOpen', {}).get('backLeft') == 1,
+            "backRight": status_data.get('doorOpen', {}).get('backRight') == 1,
+            "hood": status_data.get('hoodOpen') == 1,
+            "trunk": status_data.get('trunkOpen') == 1
+        }
+        window_status = {
+            "driver": status_data.get('windowOpen', {}).get('frontLeft') == 1,
+            "passenger": status_data.get('windowOpen', {}).get('frontRight') == 1,
+            "backLeft": status_data.get('windowOpen', {}).get('backLeft') == 1,
+            "backRight": status_data.get('windowOpen', {}).get('backRight') == 1
+        }
+
+    return jsonify(success=True, data={
+        "battery": getattr(vehicle, "ev_battery_percentage", 0),
+        "range": getattr(vehicle, "ev_driving_range", 0),
+        "charging": getattr(vehicle, "ev_battery_is_charging", False),
+        "pluggedIn": getattr(vehicle, "ev_battery_is_plugged_in", False),
+        "locked": getattr(vehicle, "is_locked", False),
+        "climateActive": getattr(vehicle, "air_control_is_on", False),
+        "doors": door_status,
+        "windows": window_status,
+        "lastUpdated": datetime.now().isoformat()
+    })
+
+
+# ---------------------------------------------------------------------
+# Climate control
+# ---------------------------------------------------------------------
 
 @app.route('/api/climate/start', methods=['POST'])
 def start_climate():
-    """Start climate control"""
-    try:
-        if not ensure_token():
-            return jsonify({
-                'success': False,
-                'message': 'Inte ansluten till fordon'
-            }), 401
+    if not ensure_token():
+        return jsonify(success=False, message="Ej ansluten"), 401
 
-        data = request.get_json()
-        temperature = data.get('temperature', 21)
-        defrost = data.get('defrost', False)
+    data = request.get_json(silent=True) or {}
+    options = build_climate_options(
+        data.get("temperature", 21),
+        data.get("defrost", False)
+    )
 
-        logger.info(f"Startar klimat: {temperature}°C, defrost: {defrost}")
-
-        # Create climate options
-        options = ClimateRequestOptions()
-        options.set_temp = temperature
-        options.defrost = defrost
-        options.climate = True
-        options.heating = 1
-
-        # Start climate
-        response = api.start_climate(token, vehicle, options)
-
-        logger.info(f"Klimat startad: {response}")
-
-        return jsonify({
-            'success': True,
-            'message': f'Klimat startad på {temperature}°C'
-        })
-
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Climate start error: {error_msg}")
-
-        # Handle duplicate request error
-        if "Duplicate request" in error_msg:
-            return jsonify({
-                'success': False,
-                'message': 'Vänta några sekunder innan nästa kommando'
-            }), 429
-
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'message': error_msg
-        }), 500
+    success, message, verified = start_climate_verified(options)
+    status_code = 200 if success else 502
+    return jsonify(success=success, message=message, verified=verified), status_code
 
 
 @app.route('/api/climate/stop', methods=['POST'])
 def stop_climate():
-    """Stop climate control"""
+    if not ensure_token():
+        return jsonify(success=False, message="Ej ansluten"), 401
+
     try:
+        with api_lock:
+            api.stop_climate(token, vehicle)
+        return jsonify(success=True, message="Klimat stoppad")
+    except AuthenticationError as e:
+        logger.warning(f"Token utgången vid klimatstopp: {e} – försöker förnya")
+        invalidate_session()
         if not ensure_token():
-            return jsonify({
-                'success': False,
-                'message': 'Inte ansluten till fordon'
-            }), 401
-
-        logger.info("Stoppar klimat...")
-
-        # Stop climate
-        response = api.stop_climate(token, vehicle)
-
-        logger.info(f"Klimat stoppad: {response}")
-
-        return jsonify({
-            'success': True,
-            'message': 'Klimat stoppad'
-        })
-
+            return jsonify(success=False, message="Token utgången, kunde inte förnya"), 401
+        try:
+            with api_lock:
+                api.stop_climate(token, vehicle)
+            return jsonify(success=True, message="Klimat stoppad")
+        except Exception as e2:
+            logger.exception(f"Klimat stopp-fel efter token-förnyelse: {e2}")
+            return jsonify(success=False, message="Kunde inte stoppa klimat"), 502
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Climate stop error: {error_msg}")
-
-        # Handle duplicate request error
-        if "Duplicate request" in error_msg:
-            return jsonify({
-                'success': False,
-                'message': 'Vänta några sekunder innan nästa kommando'
-            }), 429
-
-        import traceback
-        logger.error(traceback.format_exc())
-        return jsonify({
-            'success': False,
-            'message': error_msg
-        }), 500
+        logger.exception(f"Klimat stopp-fel: {e}")
+        return jsonify(success=False, message="Kunde inte stoppa klimat"), 502
 
 
-@app.route('/api/lock', methods=['POST'])
-def lock_vehicle():
-    """Lock vehicle - Not available in KiaUvoApiEU"""
-    return jsonify({
-        'success': False,
-        'message': 'Lås-funktion ej tillgänglig via Kia API. Använd appen eller bilens nycklar.'
-    }), 501
+# ---------------------------------------------------------------------
+# Schedule storage
+# ---------------------------------------------------------------------
 
+def schedules_path():
+    return "/app/data/schedules.json" if os.path.exists("/app/data") else "schedules.json"
 
-@app.route('/api/unlock', methods=['POST'])
-def unlock_vehicle():
-    """Unlock vehicle - Not available in KiaUvoApiEU"""
-    return jsonify({
-        'success': False,
-        'message': 'Upplås-funktion ej tillgänglig via Kia API. Använd appen eller bilens nycklar.'
-    }), 501
+def load_schedules_with_retry(path, retries=3, delay=0.2):
+    """Read schedules with basic retry to avoid partial writes."""
+    last_error = None
+    for _ in range(retries):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return []
+        except json.JSONDecodeError as e:
+            last_error = e
+            time.sleep(delay)
+        except OSError as e:
+            # Retry on transient read errors
+            if e.errno in (errno.EAGAIN, errno.EACCES, errno.EINTR):
+                last_error = e
+                time.sleep(delay)
+            else:
+                raise
+    if last_error:
+        raise last_error
+    return []
 
-# Schedule management endpoints
-
-
-def get_schedules_path():
-    """Get the path to schedules file (supports containerized deployment)"""
-    # Check if running in container with data volume
-    if os.path.exists('/app/data'):
-        return '/app/data/schedules.json'
-    # Fall back to local directory
-    return 'schedules.json'
-
+def save_schedules_atomic(path, schedules):
+    """Write schedules atomically to avoid corrupt files."""
+    directory = os.path.dirname(path) or "."
+    tmp_path = os.path.join(directory, f".schedules.tmp.{os.getpid()}")
+    with open(tmp_path, 'w') as f:
+        json.dump(schedules, f, indent=2)
+    os.replace(tmp_path, path)
 
 @app.route('/api/schedules', methods=['GET'])
 def get_schedules():
-    """Get all climate schedules"""
     try:
-        schedules_path = get_schedules_path()
-        schedules = []
-        if os.path.exists(schedules_path):
-            with open(schedules_path, 'r') as f:
-                schedules = json.load(f)
-
-        return jsonify({
-            'success': True,
-            'schedules': schedules
-        })
+        schedules = load_schedules_with_retry(schedules_path())
+        return jsonify(success=True, schedules=schedules)
     except Exception as e:
-        logger.error(f"Get schedules error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Kunde inte läsa schema: {e}")
+        return jsonify(success=False, message="Kunde inte läsa schema"), 500
 
 
 @app.route('/api/schedules', methods=['POST'])
 def save_schedule():
-    """Save a climate schedule"""
+    """Save or update a climate schedule."""
     try:
-        data = request.get_json()
-        schedules_path = get_schedules_path()
+        data = request.get_json(silent=True) or {}
+        schedules = load_schedules_with_retry(schedules_path())
 
-        # Load existing schedules
-        schedules = []
-        if os.path.exists(schedules_path):
-            with open(schedules_path, 'r') as f:
-                schedules = json.load(f)
-
-        # Add new schedule
         schedule = {
             'id': data.get('id', str(datetime.now().timestamp())),
             'name': data.get('name', 'Ny schemaläggning'),
             'time': data.get('time'),
             'temperature': data.get('temperature', 21),
             'defrost': data.get('defrost', False),
-            'days': data.get('days', []),  # [0-6] where 0=Monday
+            'days': data.get('days', []),
             'enabled': data.get('enabled', True)
         }
 
-        # Update existing or add new
         schedule_exists = False
         for i, s in enumerate(schedules):
             if s.get('id') == schedule['id']:
@@ -718,256 +803,205 @@ def save_schedule():
         if not schedule_exists:
             schedules.append(schedule)
 
-        # Save to file
-        with open(schedules_path, 'w') as f:
-            json.dump(schedules, f, indent=2)
+        save_schedules_atomic(schedules_path(), schedules)
 
-        return jsonify({
-            'success': True,
-            'message': 'Schemaläggning sparad',
-            'schedule': schedule
-        })
+        return jsonify(success=True, message='Schemaläggning sparad', schedule=schedule)
 
     except Exception as e:
-        logger.error(f"Save schedule error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Save schedule error: {e}")
+        return jsonify(success=False, message=str(e)), 500
 
 
 @app.route('/api/schedules/<schedule_id>/toggle', methods=['PATCH'])
 def toggle_schedule(schedule_id):
-    """Toggle a climate schedule enabled/disabled"""
+    """Toggle a climate schedule enabled/disabled."""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         enabled = data.get('enabled', True)
-        schedules_path = get_schedules_path()
+        schedules = load_schedules_with_retry(schedules_path())
 
-        schedules = []
-        if os.path.exists(schedules_path):
-            with open(schedules_path, 'r') as f:
-                schedules = json.load(f)
-
-        # Update schedule enabled status
         for s in schedules:
             if s.get('id') == schedule_id:
                 s['enabled'] = enabled
                 break
 
-        # Save to file
-        with open(schedules_path, 'w') as f:
-            json.dump(schedules, f, indent=2)
+        save_schedules_atomic(schedules_path(), schedules)
 
-        return jsonify({
-            'success': True,
-            'message': f'Schema {"aktiverat" if enabled else "inaktiverat"}'
-        })
+        return jsonify(success=True, message=f'Schema {"aktiverat" if enabled else "inaktiverat"}')
 
     except Exception as e:
-        logger.error(f"Toggle schedule error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Toggle schedule error: {e}")
+        return jsonify(success=False, message=str(e)), 500
 
 
 @app.route('/api/schedules/<schedule_id>', methods=['DELETE'])
 def delete_schedule(schedule_id):
-    """Delete a climate schedule"""
+    """Delete a climate schedule."""
     try:
-        schedules_path = get_schedules_path()
-        schedules = []
-        if os.path.exists(schedules_path):
-            with open(schedules_path, 'r') as f:
-                schedules = json.load(f)
-
-        # Remove schedule
+        schedules = load_schedules_with_retry(schedules_path())
         schedules = [s for s in schedules if s.get('id') != schedule_id]
 
-        # Save to file
-        with open(schedules_path, 'w') as f:
-            json.dump(schedules, f, indent=2)
+        save_schedules_atomic(schedules_path(), schedules)
 
-        return jsonify({
-            'success': True,
-            'message': 'Schemaläggning borttagen'
-        })
+        return jsonify(success=True, message='Schemaläggning borttagen')
 
     except Exception as e:
-        logger.error(f"Delete schedule error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Delete schedule error: {e}")
+        return jsonify(success=False, message=str(e)), 500
 
+
+# ---------------------------------------------------------------------
+# Schedule worker (FIXED)
+# ---------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------
+# Charging control
+# ---------------------------------------------------------------------
 
 @app.route('/api/charging/start', methods=['POST'])
 def start_charging():
-    """Start charging"""
+    """Start charging."""
     try:
-        if api is None or token is None or vehicle is None:
-            return jsonify({
-                'success': False,
-                'message': 'Inte ansluten till fordon'
-            }), 401
+        if not ensure_token():
+            return jsonify(success=False, message="Ej ansluten"), 401
 
-        logger.info("Startar laddning...")
-        response = api.start_charge(token, vehicle)
+        with api_lock:
+            api.start_charge(token, vehicle)
 
-        return jsonify({
-            'success': True,
-            'message': 'Laddning startad'
-        })
-
+        return jsonify(success=True, message="Laddning startad")
+    except AuthenticationError as e:
+        logger.warning(f"Token utgången vid laddningsstart: {e} – försöker förnya")
+        invalidate_session()
+        if not ensure_token():
+            return jsonify(success=False, message="Token utgången, kunde inte förnya"), 401
+        try:
+            with api_lock:
+                api.start_charge(token, vehicle)
+            return jsonify(success=True, message="Laddning startad")
+        except Exception as e2:
+            logger.exception(f"Start charging error efter token-förnyelse: {e2}")
+            return jsonify(success=False, message="Kunde inte starta laddning"), 502
     except Exception as e:
-        logger.error(f"Start charging error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Start charging error: {e}")
+        return jsonify(success=False, message="Kunde inte starta laddning"), 502
 
 
 @app.route('/api/charging/stop', methods=['POST'])
 def stop_charging():
-    """Stop charging"""
+    """Stop charging."""
     try:
-        if api is None or token is None or vehicle is None:
-            return jsonify({
-                'success': False,
-                'message': 'Inte ansluten till fordon'
-            }), 401
+        if not ensure_token():
+            return jsonify(success=False, message="Ej ansluten"), 401
 
-        logger.info("Stoppar laddning...")
-        response = api.stop_charge(token, vehicle)
+        with api_lock:
+            api.stop_charge(token, vehicle)
 
-        return jsonify({
-            'success': True,
-            'message': 'Laddning stoppad'
-        })
-
+        return jsonify(success=True, message="Laddning stoppad")
+    except AuthenticationError as e:
+        logger.warning(f"Token utgången vid laddningsstopp: {e} – försöker förnya")
+        invalidate_session()
+        if not ensure_token():
+            return jsonify(success=False, message="Token utgången, kunde inte förnya"), 401
+        try:
+            with api_lock:
+                api.stop_charge(token, vehicle)
+            return jsonify(success=True, message="Laddning stoppad")
+        except Exception as e2:
+            logger.exception(f"Stop charging error efter token-förnyelse: {e2}")
+            return jsonify(success=False, message="Kunde inte stoppa laddning"), 502
     except Exception as e:
-        logger.error(f"Stop charging error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
+        logger.exception(f"Stop charging error: {e}")
+        return jsonify(success=False, message="Kunde inte stoppa laddning"), 502
 
+def schedule_worker():
+    logger.info("Schemaläggnings-tråd startad")
+    last_run = {}
+    last_cleanup_day = None
 
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
-
-    # Start schedule checker thread
-    def check_schedules():
-        """Background thread to check and execute schedules"""
-        logger.info("Schemaläggnings-tråd startad")
-
-        while True:
+    while True:
+        try:
             try:
-                # Wait a bit for initialization
-                if api is None or token is None or vehicle is None:
-                    logger.debug("Väntar på API-initiering...")
-                    time.sleep(10)
-                    continue
-
-                schedules_path = get_schedules_path()
-                if not os.path.exists(schedules_path):
-                    time.sleep(60)
-                    continue
-
-                with open(schedules_path, 'r') as f:
-                    schedules = json.load(f)
-
-                now = datetime.now()
-                current_time = now.strftime('%H:%M')
-                current_day = now.weekday()  # 0=Monday, 6=Sunday
-
-                logger.debug(
-                    f"Kollar scheman: {current_time}, Dag: {current_day}")
-
-                for schedule in schedules:
-                    if not schedule.get('enabled', True):
-                        continue
-
-                    # Check if current day is in schedule
-                    if current_day not in schedule.get('days', []):
-                        continue
-
-                    # Check if time matches
-                    if schedule.get('time') == current_time:
-                        logger.info(
-                            f"✓ Kör schemalagd klimatstart: {schedule.get('name')}")
-
-                        max_attempts = 5
-                        climate_started = False
-
-                        for attempt in range(1, max_attempts + 1):
-                            try:
-                                logger.info(f"Försök {attempt}/{max_attempts} att starta klimat...")
-
-                                # Create climate options
-                                options = ClimateRequestOptions()
-                                options.set_temp = schedule.get('temperature', 21)
-                                options.defrost = schedule.get('defrost', False)
-                                options.climate = True
-                                options.heating = 1
-
-                                # Start climate
-                                result = api.start_climate(token, vehicle, options)
-                                logger.info(f"API-anrop returnerade: {result}")
-
-                                # Wait a bit before checking status
-                                time.sleep(10)
-
-                                # Check if climate actually started
-                                try:
-                                    api.update_vehicle_with_cached_state(token, vehicle)
-                                    if hasattr(vehicle, 'air_control_is_on') and vehicle.air_control_is_on:
-                                        logger.info(
-                                            f"✓ Klimat verifierad som startad från schema '{schedule.get('name')}' efter {attempt} försök")
-                                        climate_started = True
-                                        break
-                                    else:
-                                        logger.warning(
-                                            f"Klimat verkar inte ha startats (försök {attempt}/{max_attempts})")
-                                except Exception as status_error:
-                                    logger.warning(f"Kunde inte verifiera status: {str(status_error)}")
-
-                                # Wait before next attempt if not the last one
-                                if attempt < max_attempts:
-                                    time.sleep(5)
-
-                            except Exception as e:
-                                logger.error(
-                                    f"✗ Fel vid klimatstart försök {attempt}/{max_attempts}: {str(e)}")
-                                import traceback
-                                logger.error(traceback.format_exc())
-                                if attempt < max_attempts:
-                                    time.sleep(5)
-
-                        if not climate_started:
-                            logger.error(
-                                f"✗ Misslyckades starta klimat efter {max_attempts} försök för schema '{schedule.get('name')}'")
-
-                # Sleep for 60 seconds before next check
-                time.sleep(60)
-
+                schedules = load_schedules_with_retry(schedules_path())
             except Exception as e:
-                logger.error(f"Schedule checker error: {str(e)}")
-                import traceback
-                logger.error(traceback.format_exc())
-                time.sleep(60)
+                logger.error(f"Kunde inte läsa schemafil: {e}")
+                time.sleep(15)
+                continue
 
-    # Start background thread
-    schedule_thread = threading.Thread(target=check_schedules, daemon=True)
-    schedule_thread.start()
+            now = datetime.now()
+            today = now.strftime("%Y-%m-%d")
+            now_seconds = now.hour * 3600 + now.minute * 60 + now.second
+            current_day = now.weekday()
+
+            if last_cleanup_day != today:
+                last_run = {}
+                last_cleanup_day = today
+
+            for idx, schedule in enumerate(schedules):
+                if not schedule.get("enabled", True):
+                    continue
+                if current_day not in schedule.get("days", []):
+                    continue
+                schedule_time = schedule.get("time")
+                if not schedule_time:
+                    continue
+
+                try:
+                    hh, mm = schedule_time.split(":")
+                    schedule_seconds = int(hh) * 3600 + int(mm) * 60
+                except Exception:
+                    logger.warning(f"Ogiltig tid i schema: {schedule_time}")
+                    continue
+
+                # Allow a small window to avoid missing the minute due to drift
+                if not (schedule_seconds <= now_seconds < schedule_seconds + 90):
+                    continue
+
+                schedule_id = schedule.get("id") or f"idx{idx}"
+                run_key = f"{schedule_id}-{schedule_time}"
+                if run_key in last_run:
+                    continue
+                last_run[run_key] = True
+
+                logger.info(f"✓ Kör schema: {schedule.get('name')}")
+
+                if not ensure_token():
+                    logger.error("Token ej giltig för schema")
+                    continue
+
+                options = build_climate_options(
+                    schedule.get("temperature", 21),
+                    schedule.get("defrost", False)
+                )
+
+                success, message, verified = start_climate_verified(options)
+                if success:
+                    logger.info(f"✓ Schema '{schedule.get('name')}': {message}")
+                else:
+                    logger.error(f"✗ Schema '{schedule.get('name')}': {message}")
+
+            time.sleep(15)
+
+        except Exception as e:
+            logger.error(f"Schedule worker crash: {e}")
+            time.sleep(60)
+
+
+# ---------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+
+    threading.Thread(target=schedule_worker, daemon=True).start()
 
     print(f"""
 ╔═══════════════════════════════════════╗
 ║  Kia EV6 Climate Control Server       ║
 ║  Port: {port}                            ║
-║  Python Backend with KiaUvoApiEU      ║
-║  Schemaläggning: Aktiv                ║
+║  Schemaläggning: Stabil               ║
 ╚═══════════════════════════════════════╝
-    """)
-    app.run(host='0.0.0.0', port=port, debug=False)
+""")
+
+    app.run(host="0.0.0.0", port=port, debug=False)
