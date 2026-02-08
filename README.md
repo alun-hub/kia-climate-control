@@ -61,7 +61,7 @@ En webbapplikation för att styra klimatanläggningen i din Kia EV6 via Kia UVO 
 
 1. **Klona repositoryt**
    ```bash
-   git clone <repo-url>
+   git clone https://github.com/alun-hub/kia-climate-control
    cd kia-climate-control
    ```
 
