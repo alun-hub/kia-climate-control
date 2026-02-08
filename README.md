@@ -1,52 +1,61 @@
-# 🚗 Kia EV6 Climate Control
+# Kia EV6 Climate Control
 
-En modern webbapplikation för att styra klimatanläggningen i din Kia EV6 via Kia UVO API. Schemalägg uppvärmning, starta/stoppa klimat på distans och övervaka fordonsstatus.
+En webbapplikation för att styra klimatanläggningen i din Kia EV6 via Kia UVO API. Schemalägg uppvärmning, starta/stoppa klimat på distans och övervaka fordonsstatus.
 
-![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green)
 ![Podman](https://img.shields.io/badge/Podman-Ready-orange)
 
 ---
 
-## ✨ Funktioner
+## Screenshots
 
-### 🌡️ Klimatkontroll
-- ✅ Starta/stoppa klimatanläggning på distans
-- ✅ Ställ in måltemperatur (16-30°C)
-- ✅ Avfrostningsfunktion
-- ✅ Se aktuell klimatstatus
+### Huvudsida
+![Huvudsida](front.png)
 
-### 📅 Schemaläggning
-- ✅ Skapa schemalagda klimatstarter
-- ✅ Välj specifika veckodagar
-- ✅ Aktivera/inaktivera scheman med en knapptryckning
-- ✅ Redigera och ta bort befintliga scheman
-
-### 📊 Fordonsstatus
-- ✅ Batterinivå med cirkulär gauge
-- ✅ Räckvidd
-- ✅ Laddningsstatus
-- ✅ Dörr- och fönsterstatus
-- ✅ Lås-status
-
-### 🔧 Token-hantering (Nytt!)
-- ✅ **Inbyggd token-hantering** - Ingen separat script behövs!
-- ✅ Visuell steg-för-steg guide för att hämta tokens
-- ✅ Automatisk token-utbyte direkt i webbgränssnittet
-- ✅ Kopiera User Agent och login-URL med en knapptryckning
-- ✅ Real-time anslutningsstatus
-- ✅ Uppdatera credentials utan att editera filer manuellt
-
-### 🎨 Användargränssnitt
-- ✅ Modernt gradient-baserat UI
-- ✅ Responsiv design
-- ✅ Mörkt tema
-- ✅ Animerad batterimätare
-- ✅ Visuell feedback för alla åtgärder
+### Schemahantering
+![Schemahantering](sched.png)
 
 ---
 
-## 🚀 Snabbstart
+## Funktioner
+
+### Klimatkontroll
+- Starta/stoppa klimatanläggning på distans
+- Ställ in måltemperatur (16-30°C)
+- Avfrostningsfunktion
+- Verifierad klimatstart - bekräftar att klimatet faktiskt startade och försöker igen vid behov
+
+### Schemaläggning
+- Skapa schemalagda klimatstarter
+- Välj specifika veckodagar
+- Aktivera/inaktivera scheman med en knapptryckning
+- Redigera och ta bort befintliga scheman
+- Verifierad start med automatiskt retry
+
+### Fordonsstatus
+- Batterinivå med cirkulär gauge (klickbar för att uppdatera)
+- Räckvidd
+- Batteriring ändrar färg vid laddning (grönt pulsljus)
+- Fordonsvarningar visas bara om något är öppet eller olåst
+
+### Token-hantering
+- Inbyggd token-hantering via admin-sidan (kugghjulsikon)
+- Visuell steg-för-steg guide för att hämta tokens
+- Automatisk token-utbyte direkt i webbgränssnittet
+- Automatisk token-refresh vid utgång (5 min marginal)
+- Real-time anslutningsstatus
+
+### Användargränssnitt
+- Kompakt header med anslutningsstatus
+- Mörkt tema med gradient-design
+- Responsiv design
+- Animerad batterimätare med laddningsindikering
+- Auto-uppdatering av status vid sidladdning
+
+---
+
+## Snabbstart
 
 ### Utveckling (lokalt)
 
@@ -59,7 +68,7 @@ En modern webbapplikation för att styra klimatanläggningen i din Kia EV6 via K
 2. **Skapa virtuell miljö**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # Windows: venv\Scripts\activate
+   source venv/bin/activate
    ```
 
 3. **Installera dependencies**
@@ -73,21 +82,16 @@ En modern webbapplikation för att styra klimatanläggningen i din Kia EV6 via K
    ```
 
 5. **Konfigurera tokens via webbgränssnittet**
-
-   **Nytt sätt (Rekommenderat):**
    1. Öppna `http://localhost:5000`
-   2. Klicka på "🔧 Token-hantering" i övre högra hörnet
+   2. Klicka på kugghjulsikonen uppe till höger för att nå admin-sidan
    3. Följ den visuella guiden för att hämta dina tokens
    4. Spara direkt i webbgränssnittet - klart!
 
-   **Gammalt sätt (Fortfarande fungerar):**
-   - Kör `python get_kia_token.py` och skapa en `.env` fil manuellt
-
 ---
 
-## 🐳 Produktion (Podman Container)
+## Produktion (Podman Container)
 
-**Flask-appen servar både frontend och API** - ingen separat webbserver behövs!
+Flask-appen servar både frontend och API - ingen separat webbserver behövs.
 
 Se [DEPLOYMENT.md](DEPLOYMENT.md) för detaljerad deploymentguide.
 För Cloudflare Tunnel deployment, se [CLOUDFLARE-TUNNEL.md](CLOUDFLARE-TUNNEL.md).
@@ -95,25 +99,26 @@ För Cloudflare Tunnel deployment, se [CLOUDFLARE-TUNNEL.md](CLOUDFLARE-TUNNEL.m
 ### Snabbversion:
 
 ```bash
-# Bygg container
-podman build -t kia-climate-control:latest .
+# Bygg container (Raspberry Pi)
+podman build -f Dockerfile.pi -t kia-climate-control:latest .
 
 # Skapa data-mapp
-mkdir data
+mkdir -p data
 
 # Kör container
 podman run -d \
-  --name kia-climate-control \
+  --name kia-climate \
   -p 5000:5000 \
-  --env-file .env \
-  -v ./data:/app/data:Z \
+  -v ./data:/app/data \
+  -v ./.env:/app/.env \
+  -v /etc/localtime:/etc/localtime:ro \
   --restart unless-stopped \
-  kia-climate-control:latest
+  localhost/kia-climate-control:latest
 ```
 
 ---
 
-## 📋 Förutsättningar
+## Förutsättningar
 
 ### Kia UVO Credentials
 Du behöver:
@@ -121,120 +126,97 @@ Du behöver:
 - **Refresh Token** från Kia UVO API
 
 #### Hur får jag refresh token?
-1. Använd verktyg som [mitmproxy](https://mitmproxy.org/) eller [Fiddler](https://www.telerik.com/fiddler)
-2. Logga in i Kia Connect-appen via proxy
-3. Fånga upp JWT-tokens från API-anrop
-4. Kopiera refresh token
-
-Alternativt, använd existerande skript som `get_kia_token.py`.
+1. Öppna admin-sidan (kugghjulsikonen) i webbappen
+2. Följ den inbyggda guiden för att hämta tokens
+3. Alternativt: använd verktyg som [mitmproxy](https://mitmproxy.org/) eller `get_kia_token.py`
 
 ---
 
-## 🏗️ Teknisk Stack
+## Teknisk Stack
 
 ### Backend
-- **Python 3.12**
+- **Python 3.11** (Alpine)
 - **Flask** - Webbserver
 - **hyundai-kia-connect-api** - Kia UVO API integration
 - **python-dotenv** - Environment variables
 
 ### Frontend
-- **Vanilla JavaScript** - Ingen frameworks
-- **Modern CSS** - Gradient design
+- **Vanilla JavaScript** - Inga frameworks
+- **Modern CSS** - Gradient design, mörkt tema
 - **SVG** - Cirkulär batterimätare
 
 ### Containerization
 - **Podman** - Container runtime
-- **Alpine/Slim** - Liten image-storlek
+- **Alpine Linux** - Minimal image-storlek
 
 ---
 
-## 📁 Projektstruktur
+## Projektstruktur
 
 ```
 kia-climate-control/
-├── kia_backend.py          # Flask backend
+├── kia_backend.py          # Flask backend + Kia API integration
 ├── public/
-│   └── index.html          # Single-page frontend
-├── data/                   # Persistent storage (volumes)
-│   └── schedules.json      # Schemaläggningar
-├── Dockerfile              # Container definition
+│   ├── index.html          # Huvudsida (status, klimatkontroll)
+│   └── admin.html          # Admin-sida (tokens, schemaläggning)
+├── data/                   # Persistent storage (volume)
+│   └── schedules.json      # Sparade scheman
+├── Dockerfile.pi           # Container definition (Alpine, ARM64)
 ├── docker-compose.yml      # Compose configuration
 ├── requirements.txt        # Python dependencies
-├── .env                    # Environment variables (not in git)
-├── .dockerignore          # Docker ignore patterns
-├── .gitignore             # Git ignore patterns
-├── DEPLOYMENT.md          # Deployment guide
-└── README.md              # This file
+├── .env                    # Environment variables (ej i git)
+├── front.png               # Screenshot huvudsida
+├── sched.png               # Screenshot schemasida
+├── DEPLOYMENT.md           # Deployment guide
+├── CLOUDFLARE-TUNNEL.md    # Cloudflare Tunnel setup
+├── CLOUDFLARE-SECURITY.md  # Säkerhetskonfiguration
+├── RASPBERRY-PI-SETUP.md   # Pi Zero 2W installation
+├── RASPBERRY-PI-PODMAN.md  # Pi + Podman guide
+├── PI3B-QUICKSTART.md      # Pi 3B snabbstart
+└── README.md               # Denna fil
 ```
 
 ---
 
-## 🔐 Säkerhet
+## Säkerhet
 
 ### För Cloudflare Tunnel (Rekommenderat):
 
 Se [CLOUDFLARE-SECURITY.md](CLOUDFLARE-SECURITY.md) för fullständig guide om:
-- ✅ **Automatisk HTTPS** och SSL-certifikat
-- ✅ **Cloudflare Access** - Autentisering (gratis upp till 50 användare)
-- ✅ **Rate limiting** och DDoS-skydd
-- ✅ **Ingen öppen port** på din router
+- Automatisk HTTPS och SSL-certifikat
+- Cloudflare Access - Autentisering (gratis upp till 50 användare)
+- Rate limiting och DDoS-skydd
+- Ingen öppen port på din router
 
 ### Allmänna rekommendationer:
 
 1. **Secrets Management**
-   - Använd Podman secrets istället för .env i produktion
    - Rotera Kia UVO tokens regelbundet
+   - Använd admin-sidan för att uppdatera credentials
 
 2. **Backups**
    - Säkerhetskopiera `data/schedules.json`
    - Spara credentials säkert
 
 3. **Monitoring**
-   - Granska loggar regelbundet
-   - Aktivera Cloudflare email-notifieringar
+   - Granska loggar regelbundet: `podman logs kia-climate`
 
 ---
 
-## 🤝 Bidra
+## Acknowledgments
 
-Bidrag är välkomna! Skapa gärna en pull request eller öppna en issue.
-
-### Utvecklingsriktlinjer:
-1. Fork projektet
-2. Skapa en feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit dina ändringar (`git commit -m 'Add some amazing feature'`)
-4. Push till branchen (`git push origin feature/amazing-feature`)
-5. Öppna en Pull Request
+- [hyundai-kia-connect-api](https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api) - Kia UVO API-integrationen
 
 ---
 
-## 📝 License
-
-Detta projekt är licensierat under MIT License - se LICENSE-filen för detaljer.
-
----
-
-## 🙏 Acknowledgments
-
-- [hyundai-kia-connect-api](https://github.com/Hyundai-Kia-Connect/hyundai_kia_connect_api) - För Kia UVO API-integrationen
-- Kia Community - För dokumentation och reverse engineering av Kia UVO API
-
----
-
-## ⚠️ Disclaimer
+## Disclaimer
 
 Detta projekt är inte officiellt godkänt av Kia. Använd på egen risk. Kia kan när som helst ändra sitt API vilket kan göra denna applikation icke-funktionell.
 
 ---
 
-## 📞 Support
+## Support
 
-För frågor och support:
 1. Kontrollera [DEPLOYMENT.md](DEPLOYMENT.md)
-2. Öppna en issue på GitHub
-3. Kontrollera loggar: `podman logs kia-climate-control`
-
----
-
-**Utvecklad med ❤️ för Kia EV6-ägare**
+2. Kontrollera loggar: `podman logs kia-climate`
+3. Öppna en issue på GitHub
