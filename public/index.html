@@ -1033,13 +1033,13 @@
             var alerts = [];
 
             if (!locked) {
-                alerts.push({ text: 'Olast', type: 'warning' });
+                alerts.push({ text: 'Ol\u00e5st', type: 'warning' });
             }
 
-            var doorNames = { driver: 'Forardorr', passenger: 'Passagerardorr', backLeft: 'V bak dorr', backRight: 'H bak dorr', hood: 'Huv', trunk: 'Bagage' };
+            var doorNames = { driver: 'F\u00f6rard\u00f6rr', passenger: 'Passagerard\u00f6rr', backLeft: 'V bak d\u00f6rr', backRight: 'H bak d\u00f6rr', hood: 'Huv', trunk: 'Bagage' };
             for (var key in doors) {
                 if (doors[key]) {
-                    alerts.push({ text: doorNames[key] + ' oppen', type: 'danger' });
+                    alerts.push({ text: doorNames[key] + ' \u00f6ppen', type: 'danger' });
                 }
             }
 
@@ -1086,12 +1086,12 @@
                         document.getElementById('range').textContent = d.range + ' km';
 
                         var lockBadge = document.getElementById('lockBadge');
-                        lockBadge.textContent = d.locked ? 'Last' : 'Olast';
+                        lockBadge.textContent = d.locked ? 'L\u00e5st' : 'Ol\u00e5st';
                         lockBadge.className = d.locked ? 'badge badge-success' : 'badge badge-warning';
 
                         var climateBadge = document.getElementById('climateBadge');
                         if (d.climateActive) {
-                            climateBadge.textContent = 'Paslagen';
+                            climateBadge.textContent = 'P\u00e5slagen';
                             climateBadge.className = 'badge badge-success';
                             climateActive = true;
                             updateClimateButtons(true);
@@ -1227,7 +1227,7 @@
 
         function displaySchedules(schedules) {
             var html = '';
-            var days = ['Man', 'Tis', 'Ons', 'Tor', 'Fre', 'Lor', 'Son'];
+            var days = ['M\u00e5n', 'Tis', 'Ons', 'Tor', 'Fre', 'L\u00f6r', 'S\u00f6n'];
 
             schedules.forEach(function(s) {
                 var daysHtml = '';
