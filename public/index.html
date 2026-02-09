@@ -1043,10 +1043,10 @@
                 }
             }
 
-            var windowNames = { driver: 'Forarfonster', passenger: 'Passagerarfonster', backLeft: 'V bak fonster', backRight: 'H bak fonster' };
+            var windowNames = { driver: 'F\u00f6rarf\u00f6nster', passenger: 'Passagerarf\u00f6nster', backLeft: 'V bak f\u00f6nster', backRight: 'H bak f\u00f6nster' };
             for (var key in windows) {
                 if (windows[key]) {
-                    alerts.push({ text: windowNames[key] + ' oppet', type: 'danger' });
+                    alerts.push({ text: windowNames[key] + ' \u00f6ppet', type: 'danger' });
                 }
             }
 
@@ -1113,7 +1113,7 @@
                             if (!lastSuccessAt || Date.now() - lastSuccessAt > 120000) {
                                 updateConnectionStatus(false);
                             }
-                            showAlert((result.data && result.data.message) || 'Kunde inte hamta status', 'error');
+                            showAlert((result.data && result.data.message) || 'Kunde inte h\u00e4mta status', 'error');
                         }
                     }
                 })
@@ -1121,7 +1121,7 @@
                     if (!lastSuccessAt || Date.now() - lastSuccessAt > 120000) {
                         updateConnectionStatus(false);
                     }
-                    showAlert('Kunde inte hamta status', 'error');
+                    showAlert('Kunde inte h\u00e4mta status', 'error');
                 })
                 .finally(function() {
                     isRefreshing = false;
@@ -1136,7 +1136,7 @@
 
         function toggleDefrost() {
             defrostEnabled = !defrostEnabled;
-            document.getElementById('defrostText').textContent = 'Avfrostning: ' + (defrostEnabled ? 'Pa' : 'Av');
+            document.getElementById('defrostText').textContent = 'Avfrostning: ' + (defrostEnabled ? 'P\u00e5' : 'Av');
         }
 
         function startClimate() {
