@@ -8,7 +8,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from hyundai_kia_connect_api.KiaUvoApiEU import KiaUvoApiEU
 from hyundai_kia_connect_api.ApiImplType1 import ClimateRequestOptions
-from hyundai_kia_connect_api.exceptions import AuthenticationError
+from hyundai_kia_connect_api.exceptions import AuthenticationError, DeviceIDError
 import os
 from dotenv import load_dotenv
 import logging
@@ -199,23 +199,30 @@ def build_climate_options(temperature, defrost):
     return options
 
 
+def _reauth_and_retry(action_fn, error_label):
+    """Re-login and retry an API action on auth/deviceID errors.
+    action_fn: callable that performs the API call (no args).
+    Returns (ok, error_msg).
+    """
+    invalidate_session()
+    if not ensure_token():
+        return False, f"{error_label}: session ogiltig, kunde inte förnya"
+    try:
+        action_fn()
+        return True, None
+    except Exception as e2:
+        return False, str(e2)
+
+
 def _send_climate_start(options):
-    """Send start_climate command, handling auth errors. Returns (ok, error_msg)."""
+    """Send start_climate command, handling auth/deviceID errors. Returns (ok, error_msg)."""
     try:
         with api_lock:
             api.start_climate(token, vehicle, options)
         return True, None
-    except AuthenticationError as e:
-        logger.warning(f"Token utgången vid klimatstart: {e}")
-        invalidate_session()
-        if not ensure_token():
-            return False, "Token utgången, kunde inte förnya"
-        try:
-            with api_lock:
-                api.start_climate(token, vehicle, options)
-            return True, None
-        except Exception as e2:
-            return False, str(e2)
+    except (AuthenticationError, DeviceIDError) as e:
+        logger.warning(f"Auth/DeviceID-fel vid klimatstart: {e} – förnyar session")
+        return _reauth_and_retry(lambda: api.start_climate(token, vehicle, options), "klimatstart")
     except Exception as e:
         return False, str(e)
 
@@ -717,18 +724,13 @@ def stop_climate():
         with api_lock:
             api.stop_climate(token, vehicle)
         return jsonify(success=True, message="Klimat stoppad")
-    except AuthenticationError as e:
-        logger.warning(f"Token utgången vid klimatstopp: {e} – försöker förnya")
-        invalidate_session()
-        if not ensure_token():
-            return jsonify(success=False, message="Token utgången, kunde inte förnya"), 401
-        try:
-            with api_lock:
-                api.stop_climate(token, vehicle)
+    except (AuthenticationError, DeviceIDError) as e:
+        logger.warning(f"Auth/DeviceID-fel vid klimatstopp: {e} – förnyar session")
+        ok, err = _reauth_and_retry(lambda: api.stop_climate(token, vehicle), "klimatstopp")
+        if ok:
             return jsonify(success=True, message="Klimat stoppad")
-        except Exception as e2:
-            logger.exception(f"Klimat stopp-fel efter token-förnyelse: {e2}")
-            return jsonify(success=False, message="Kunde inte stoppa klimat"), 502
+        logger.error(f"Klimat stopp-fel efter re-login: {err}")
+        return jsonify(success=False, message="Kunde inte stoppa klimat"), 502
     except Exception as e:
         logger.exception(f"Klimat stopp-fel: {e}")
         return jsonify(success=False, message="Kunde inte stoppa klimat"), 502
@@ -876,18 +878,13 @@ def start_charging():
             api.start_charge(token, vehicle)
 
         return jsonify(success=True, message="Laddning startad")
-    except AuthenticationError as e:
-        logger.warning(f"Token utgången vid laddningsstart: {e} – försöker förnya")
-        invalidate_session()
-        if not ensure_token():
-            return jsonify(success=False, message="Token utgången, kunde inte förnya"), 401
-        try:
-            with api_lock:
-                api.start_charge(token, vehicle)
+    except (AuthenticationError, DeviceIDError) as e:
+        logger.warning(f"Auth/DeviceID-fel vid laddningsstart: {e} – förnyar session")
+        ok, err = _reauth_and_retry(lambda: api.start_charge(token, vehicle), "laddningsstart")
+        if ok:
             return jsonify(success=True, message="Laddning startad")
-        except Exception as e2:
-            logger.exception(f"Start charging error efter token-förnyelse: {e2}")
-            return jsonify(success=False, message="Kunde inte starta laddning"), 502
+        logger.error(f"Laddningsstart-fel efter re-login: {err}")
+        return jsonify(success=False, message="Kunde inte starta laddning"), 502
     except Exception as e:
         logger.exception(f"Start charging error: {e}")
         return jsonify(success=False, message="Kunde inte starta laddning"), 502
@@ -904,18 +901,13 @@ def stop_charging():
             api.stop_charge(token, vehicle)
 
         return jsonify(success=True, message="Laddning stoppad")
-    except AuthenticationError as e:
-        logger.warning(f"Token utgången vid laddningsstopp: {e} – försöker förnya")
-        invalidate_session()
-        if not ensure_token():
-            return jsonify(success=False, message="Token utgången, kunde inte förnya"), 401
-        try:
-            with api_lock:
-                api.stop_charge(token, vehicle)
+    except (AuthenticationError, DeviceIDError) as e:
+        logger.warning(f"Auth/DeviceID-fel vid laddningsstopp: {e} – förnyar session")
+        ok, err = _reauth_and_retry(lambda: api.stop_charge(token, vehicle), "laddningsstopp")
+        if ok:
             return jsonify(success=True, message="Laddning stoppad")
-        except Exception as e2:
-            logger.exception(f"Stop charging error efter token-förnyelse: {e2}")
-            return jsonify(success=False, message="Kunde inte stoppa laddning"), 502
+        logger.error(f"Laddningsstopp-fel efter re-login: {err}")
+        return jsonify(success=False, message="Kunde inte stoppa laddning"), 502
     except Exception as e:
         logger.exception(f"Stop charging error: {e}")
         return jsonify(success=False, message="Kunde inte stoppa laddning"), 502
