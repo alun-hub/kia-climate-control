@@ -927,6 +927,12 @@ def schedule_worker():
 
     while True:
         try:
+            # Proaktiv återanslutning: om vi saknar giltig session, försök återansluta
+            # (oavsett om ett schema matchar eller inte)
+            if (api is None or token is None or vehicle is None) and get_cooldown_seconds() == 0:
+                logger.info("Bakgrundstråd: försöker återansluta till Kia API...")
+                ensure_token()
+
             try:
                 schedules = load_schedules_with_retry(schedules_path())
             except Exception as e:
