@@ -250,8 +250,9 @@ def start_climate_verified(options, max_attempts=2, verify_delay=25):
         ok, err = _send_climate_start(options)
         if not ok:
             if attempt < max_attempts:
-                logger.warning(f"Klimatstart misslyckades (försök {attempt}/{max_attempts}): {err} – väntar {verify_delay}s och försöker igen")
+                logger.warning(f"Klimatstart misslyckades (försök {attempt}/{max_attempts}): {err} – väntar {verify_delay}s och gör re-login")
                 time.sleep(verify_delay)
+                invalidate_session()
                 ensure_token()
                 continue
             return False, f"Klimatstart misslyckades: {err}", False
