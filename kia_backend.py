@@ -8,7 +8,12 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from hyundai_kia_connect_api.KiaUvoApiEU import KiaUvoApiEU
 from hyundai_kia_connect_api.ApiImplType1 import ClimateRequestOptions
-from hyundai_kia_connect_api.exceptions import AuthenticationError, DeviceIDError
+from hyundai_kia_connect_api.exceptions import (
+    AuthenticationError,
+    DeviceIDError,
+    DuplicateRequestError,
+    RateLimitingError,
+)
 import os
 from dotenv import load_dotenv
 import logging
@@ -629,6 +634,106 @@ def update_credentials():
 # Vehicle status
 # ---------------------------------------------------------------------
 
+def _num(value):
+    """Return a rounded number or None (treats None/'' as missing)."""
+    if value is None or value == "":
+        return None
+    try:
+        f = float(value)
+        return int(f) if f == int(f) else round(f, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _positive(value):
+    """Like _num but 0 is also treated as 'unknown' (SoH, tire pressure, ...)."""
+    n = _num(value)
+    return n if n else None
+
+
+def build_status_payload():
+    """Assemble the status dict from the current global vehicle object."""
+    def door_open(attr):
+        return bool(getattr(vehicle, attr, 0))
+
+    door_status = {
+        "driver": door_open("front_left_door_is_open"),
+        "passenger": door_open("front_right_door_is_open"),
+        "backLeft": door_open("back_left_door_is_open"),
+        "backRight": door_open("back_right_door_is_open"),
+        "hood": door_open("hood_is_open"),
+        "trunk": door_open("trunk_is_open"),
+    }
+    window_status = {
+        "driver": door_open("front_left_window_is_open"),
+        "passenger": door_open("front_right_window_is_open"),
+        "backLeft": door_open("back_left_window_is_open"),
+        "backRight": door_open("back_right_window_is_open"),
+    }
+
+    car_updated = getattr(vehicle, "last_updated_at", None)
+    try:
+        car_updated = car_updated.isoformat() if car_updated else None
+    except Exception:
+        car_updated = None
+
+    return {
+        "battery": getattr(vehicle, "ev_battery_percentage", 0),
+        "range": getattr(vehicle, "ev_driving_range", 0),
+        "charging": getattr(vehicle, "ev_battery_is_charging", False),
+        "pluggedIn": getattr(vehicle, "ev_battery_is_plugged_in", False),
+        "locked": getattr(vehicle, "is_locked", False),
+        "climateActive": getattr(vehicle, "air_control_is_on", False),
+        "doors": door_status,
+        "windows": window_status,
+        "lastUpdated": datetime.now().isoformat(),
+        # --- extended fields (hyundai-kia-connect-api 4.27+) ---
+        "odometer": _num(getattr(vehicle, "odometer", None)),
+        "twelveVBattery": _num(getattr(vehicle, "car_battery_percentage", None)),
+        "chargeLimitAc": _num(getattr(vehicle, "ev_charge_limits_ac", None)),
+        "chargeLimitDc": _num(getattr(vehicle, "ev_charge_limits_dc", None)),
+        "chargeDurationMin": _positive(getattr(vehicle, "ev_estimated_current_charge_duration", None)),
+        "chargingPower": _num(getattr(vehicle, "ev_charging_power", None)),
+        "chargePortOpen": getattr(vehicle, "ev_charge_port_door_is_open", None),
+        "carUpdatedAt": car_updated,
+        # --- deep fields, best populated by POST /api/refresh (car wake-up) ---
+        "consumption30d": _positive(getattr(vehicle, "power_consumption_30d", None)),
+        "fastChargeMin": _positive(getattr(vehicle, "ev_estimated_fast_charge_duration", None)),
+        "targetRangeAc": _positive(getattr(vehicle, "ev_target_range_charge_AC", None)),
+        "today": _daily_stat_payload(),
+        # --- vehicle-dependent: many EU EV6 don't report these at all ---
+        "batterySoh": _positive(getattr(vehicle, "ev_battery_soh_percentage", None)),
+        "outsideTemp": _num(getattr(vehicle, "outside_temperature", None)),
+        "tirePressure": {
+            "fl": _positive(getattr(vehicle, "tire_pressure_front_left", None)),
+            "fr": _positive(getattr(vehicle, "tire_pressure_front_right", None)),
+            "rl": _positive(getattr(vehicle, "tire_pressure_rear_left", None)),
+            "rr": _positive(getattr(vehicle, "tire_pressure_rear_right", None)),
+            "unit": getattr(vehicle, "tire_pressure_unit", None),
+        },
+    }
+
+
+def _daily_stat_payload():
+    """Most recent day from vehicle.daily_stats, as kWh/km, or None."""
+    try:
+        stats = getattr(vehicle, "daily_stats", None) or []
+        if not stats:
+            return None
+        s = stats[0]
+        consumed_wh = (s.total_consumed or 0)
+        regen_wh = (s.regenerated_energy or 0)
+        return {
+            "date": s.date.strftime("%Y-%m-%d") if getattr(s, "date", None) else None,
+            "distance": _num(s.distance),
+            "distanceUnit": getattr(s, "distance_unit", "km"),
+            "consumedKwh": round(consumed_wh / 1000, 1) if consumed_wh else None,
+            "regeneratedKwh": round(regen_wh / 1000, 1) if regen_wh else None,
+        }
+    except Exception:
+        return None
+
+
 @app.route('/api/status')
 def status():
     if not ensure_token():
@@ -655,50 +760,78 @@ def status():
         logger.exception(f"Status-fel: {e}")
         return jsonify(success=False, code="status_error", message="Kunde inte hämta status"), 502
 
-    # Default door/window status
-    door_status = {
-        "driver": False,
-        "passenger": False,
-        "backLeft": False,
-        "backRight": False,
-        "hood": False,
-        "trunk": False
-    }
-    window_status = {
-        "driver": False,
-        "passenger": False,
-        "backLeft": False,
-        "backRight": False
-    }
+    return jsonify(success=True, data=build_status_payload())
 
-    if hasattr(vehicle, 'data') and vehicle.data:
-        status_data = vehicle.data.get('vehicleStatus', {})
-        door_status = {
-            "driver": status_data.get('doorOpen', {}).get('frontLeft') == 1,
-            "passenger": status_data.get('doorOpen', {}).get('frontRight') == 1,
-            "backLeft": status_data.get('doorOpen', {}).get('backLeft') == 1,
-            "backRight": status_data.get('doorOpen', {}).get('backRight') == 1,
-            "hood": status_data.get('hoodOpen') == 1,
-            "trunk": status_data.get('trunkOpen') == 1
-        }
-        window_status = {
-            "driver": status_data.get('windowOpen', {}).get('frontLeft') == 1,
-            "passenger": status_data.get('windowOpen', {}).get('frontRight') == 1,
-            "backLeft": status_data.get('windowOpen', {}).get('backLeft') == 1,
-            "backRight": status_data.get('windowOpen', {}).get('backRight') == 1
-        }
 
-    return jsonify(success=True, data={
-        "battery": getattr(vehicle, "ev_battery_percentage", 0),
-        "range": getattr(vehicle, "ev_driving_range", 0),
-        "charging": getattr(vehicle, "ev_battery_is_charging", False),
-        "pluggedIn": getattr(vehicle, "ev_battery_is_plugged_in", False),
-        "locked": getattr(vehicle, "is_locked", False),
-        "climateActive": getattr(vehicle, "air_control_is_on", False),
-        "doors": door_status,
-        "windows": window_status,
-        "lastUpdated": datetime.now().isoformat()
-    })
+@app.route('/api/refresh', methods=['POST'])
+def refresh_from_car():
+    """Wake the car and pull a fresh, complete state (slow: 10–30 s)."""
+    if not ensure_token():
+        cooldown = get_cooldown_seconds()
+        if cooldown > 0:
+            return jsonify(success=False, code="rate_limit", message=f"Rate-limit – försök igen om {cooldown}s", retry_after=cooldown), 429
+        return jsonify(success=False, code="not_connected", message="Ej ansluten"), 401
+
+    def _do_force_refresh():
+        with api_lock:
+            api.force_refresh_vehicle_state(token, vehicle)
+            api.update_vehicle_with_cached_state(token, vehicle)
+
+    try:
+        _do_force_refresh()
+    except (AuthenticationError, DeviceIDError) as e:
+        logger.warning(f"Auth/DeviceID-fel vid force refresh: {e} – förnyar session")
+        ok, err = _reauth_and_retry(_do_force_refresh, "uppdatering från bil")
+        if not ok:
+            return jsonify(success=False, code="status_error", message="Kunde inte uppdatera från bilen"), 502
+    except DuplicateRequestError:
+        return jsonify(success=False, code="duplicate", message="Bilen uppdaterades nyss – vänta någon minut"), 429
+    except RateLimitingError:
+        return jsonify(success=False, code="rate_limit", message="För många förfrågningar mot Kia – försök igen senare"), 429
+    except Exception as e:
+        logger.exception(f"Force refresh-fel: {e}")
+        return jsonify(success=False, code="status_error", message="Kunde inte uppdatera från bilen"), 502
+
+    return jsonify(success=True, data=build_status_payload())
+
+
+@app.route('/api/charge-limits', methods=['POST'])
+def set_charge_limits_route():
+    """Set the target state-of-charge for AC and DC charging (50–100, steg om 10)."""
+    if not ensure_token():
+        return jsonify(success=False, message="Ej ansluten"), 401
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ac = int(data.get("ac"))
+        dc = int(data.get("dc", data.get("ac")))
+    except (TypeError, ValueError):
+        return jsonify(success=False, message="Ogiltiga värden"), 400
+
+    for v in (ac, dc):
+        if v < 50 or v > 100 or v % 10 != 0:
+            return jsonify(success=False, message="Laddgräns måste vara 50–100 % i steg om 10"), 400
+
+    def _do_set():
+        with api_lock:
+            api.set_charge_limits(token, vehicle, ac, dc)
+
+    try:
+        _do_set()
+    except (AuthenticationError, DeviceIDError) as e:
+        logger.warning(f"Auth/DeviceID-fel vid laddgräns: {e} – förnyar session")
+        ok, err = _reauth_and_retry(_do_set, "laddgräns")
+        if not ok:
+            return jsonify(success=False, message="Kunde inte sätta laddgräns"), 502
+    except DuplicateRequestError:
+        return jsonify(success=False, message="Kommandot skickades nyss – vänta någon minut"), 429
+    except RateLimitingError:
+        return jsonify(success=False, message="För många förfrågningar mot Kia – försök igen senare"), 429
+    except Exception as e:
+        logger.exception(f"Set charge limits-fel: {e}")
+        return jsonify(success=False, message="Kunde inte sätta laddgräns"), 502
+
+    return jsonify(success=True, message=f"Laddgräns satt till {ac} %", ac=ac, dc=dc)
 
 
 # ---------------------------------------------------------------------
@@ -1014,4 +1147,6 @@ if __name__ == "__main__":
 ╚═══════════════════════════════════════╝
 """)
 
-    app.run(host="0.0.0.0", port=port, debug=False)
+    # threaded: a slow /api/refresh (car wake-up, ~30 s) must not block health
+    # probes or other requests. API access is serialised by api_lock.
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)

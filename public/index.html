@@ -212,6 +212,66 @@
             background: linear-gradient(135deg, #6b7280, #4b5563);
         }
 
+        .car-updated {
+            color: #64748b;
+            font-size: 0.8rem;
+            text-align: center;
+            margin-top: 12px;
+        }
+
+        .charge-limit-control {
+            margin-top: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(51, 65, 85, 0.4), rgba(30, 41, 59, 0.4));
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .charge-limit-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 14px;
+            font-weight: 700;
+            color: #e2e8f0;
+        }
+
+        .charge-limit-header span:last-child {
+            font-size: 1.4rem;
+            color: #3b82f6;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 6px;
+            background: rgba(15, 23, 42, 0.8);
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.5);
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 26px;
+            height: 26px;
+            border: none;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.5);
+            cursor: pointer;
+        }
+
         .temperature-display {
             background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.2));
             border: 2px solid rgba(59, 130, 246, 0.3);
@@ -842,8 +902,22 @@
                                 <span class="badge badge-gray" id="climateBadge">Av</span>
                             </div>
                         </div>
+                        <div class="status-item">
+                            <div class="status-label">M&auml;tarst&auml;llning</div>
+                            <div class="status-value" id="odometer">&ndash;</div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-label">Laddgr&auml;ns</div>
+                            <div class="status-value" id="chargeLimitValue">&ndash;</div>
+                        </div>
+                        <div class="status-item hidden" id="chargeDurationItem">
+                            <div class="status-label">Laddklar om</div>
+                            <div class="status-value" id="chargeDuration">&ndash;</div>
+                        </div>
                     </div>
                 </div>
+
+                <div class="car-updated" id="carUpdated"></div>
 
                 <!-- Vehicle alerts - only shown when something is wrong -->
                 <div id="vehicleAlerts" class="vehicle-alert hidden">
@@ -851,7 +925,13 @@
                     <div class="alert-items" id="vehicleAlertItems"></div>
                 </div>
 
-                <h2>Klimatkontroll</h2>
+                <button class="btn btn-secondary" id="refreshCarBtn" onclick="refreshFromCar()" style="width: 100%; margin-top: 4px; justify-content: center;">
+                    <span id="refreshCarText">&#128260; Uppdatera fr&aring;n bilen</span>
+                </button>
+
+                <div id="carDetails" class="status-grid hidden" style="margin-top: 16px; margin-bottom: 28px;"></div>
+
+                <h2 style="margin-top: 32px;">Klimatkontroll</h2>
                 <div style="text-align: center;">
                     <div class="temperature-display">
                         <div class="temperature-value" id="targetTemp">21&deg;</div>
@@ -880,6 +960,18 @@
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                     <button class="btn btn-success" onclick="startCharging()">Starta Laddning</button>
                     <button class="btn btn-danger" onclick="stopCharging()">Stoppa Laddning</button>
+                </div>
+
+                <div class="charge-limit-control">
+                    <div class="charge-limit-header">
+                        <span>Laddgr&auml;ns (m&aring;l)</span>
+                        <span id="chargeLimitSliderValue">80%</span>
+                    </div>
+                    <input type="range" min="50" max="100" step="10" value="80" id="chargeLimitSlider"
+                           oninput="document.getElementById('chargeLimitSliderValue').textContent = this.value + '%';">
+                    <button class="btn btn-primary" id="saveChargeLimitBtn" onclick="saveChargeLimit()" style="width: 100%; margin-top: 14px; justify-content: center;">
+                        Spara laddgr&auml;ns
+                    </button>
                 </div>
             </div>
 
@@ -1063,6 +1155,177 @@
             container.classList.remove('hidden');
         }
 
+        function renderStatus(d) {
+            updateBatteryGauge(d.battery, d.charging);
+            document.getElementById('range').textContent = d.range + ' km';
+
+            var lockBadge = document.getElementById('lockBadge');
+            lockBadge.textContent = d.locked ? 'Låst' : 'Olåst';
+            lockBadge.className = d.locked ? 'badge badge-success' : 'badge badge-warning';
+
+            var climateBadge = document.getElementById('climateBadge');
+            if (d.climateActive) {
+                climateBadge.textContent = 'Påslagen';
+                climateBadge.className = 'badge badge-success';
+                climateActive = true;
+                updateClimateButtons(true);
+            } else {
+                climateBadge.textContent = 'Av';
+                climateBadge.className = 'badge badge-gray';
+                climateActive = false;
+                updateClimateButtons(false);
+            }
+
+            updateVehicleAlerts(d.doors, d.windows, d.locked);
+            updateExtendedStatus(d);
+        }
+
+        function fmtNum(n) {
+            return (n === null || n === undefined) ? null : Math.round(n).toLocaleString('sv-SE');
+        }
+
+        function updateExtendedStatus(d) {
+            document.getElementById('odometer').textContent =
+                (d.odometer !== null && d.odometer !== undefined) ? fmtNum(d.odometer) + ' km' : '–';
+
+            document.getElementById('chargeLimitValue').textContent =
+                (d.chargeLimitAc !== null && d.chargeLimitAc !== undefined) ? d.chargeLimitAc + '%' : '–';
+
+            var durItem = document.getElementById('chargeDurationItem');
+            if (d.charging && d.chargeDurationMin) {
+                var h = Math.floor(d.chargeDurationMin / 60);
+                var m = d.chargeDurationMin % 60;
+                document.getElementById('chargeDuration').textContent = h > 0 ? (h + ' h ' + m + ' min') : (m + ' min');
+                durItem.classList.remove('hidden');
+            } else {
+                durItem.classList.add('hidden');
+            }
+
+            var cu = document.getElementById('carUpdated');
+            if (d.carUpdatedAt) {
+                var dt = new Date(d.carUpdatedAt);
+                cu.textContent = 'Data från bilen: ' + dt.toLocaleString('sv-SE',
+                    { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            } else {
+                cu.textContent = '';
+            }
+
+            var slider = document.getElementById('chargeLimitSlider');
+            if (d.chargeLimitAc !== null && d.chargeLimitAc !== undefined && document.activeElement !== slider) {
+                slider.value = d.chargeLimitAc;
+                document.getElementById('chargeLimitSliderValue').textContent = d.chargeLimitAc + '%';
+            }
+
+            updateCarDetails(d);
+        }
+
+        function has(v) { return v !== null && v !== undefined && v !== ''; }
+
+        function addDetail(parent, label, value) {
+            if (!has(value)) return;
+            var item = document.createElement('div');
+            item.className = 'status-item';
+            var l = document.createElement('div');
+            l.className = 'status-label';
+            l.textContent = label;
+            var v = document.createElement('div');
+            v.className = 'status-value';
+            v.textContent = value;
+            item.appendChild(l);
+            item.appendChild(v);
+            parent.appendChild(item);
+        }
+
+        var carDetailsShown = false;
+
+        function updateCarDetails(d) {
+            if (!carDetailsShown) return;
+            var panel = document.getElementById('carDetails');
+            panel.textContent = '';
+
+            addDetail(panel, '12V-batteri', has(d.twelveVBattery) ? d.twelveVBattery + '%' : null);
+            addDetail(panel, 'Förbrukning 30 d', has(d.consumption30d) ? d.consumption30d + ' Wh/km' : null);
+
+            if (d.today && has(d.today.distance)) {
+                var t = d.today;
+                var txt = fmtNum(t.distance) + ' ' + (t.distanceUnit || 'km');
+                if (has(t.consumedKwh)) txt += ' · ' + String(t.consumedKwh).replace('.', ',') + ' kWh';
+                addDetail(panel, 'Idag', txt);
+            }
+
+            addDetail(panel, 'Snabbladdning 10–80 %', has(d.fastChargeMin) ? '~' + d.fastChargeMin + ' min' : null);
+            addDetail(panel, 'Räckvidd vid ' + (has(d.chargeLimitAc) ? d.chargeLimitAc + ' %' : 'mål'),
+                      has(d.targetRangeAc) ? fmtNum(d.targetRangeAc) + ' km' : null);
+            addDetail(panel, 'Batterihälsa', has(d.batterySoh) ? d.batterySoh + '%' : null);
+            addDetail(panel, 'Utetemp', has(d.outsideTemp) ? d.outsideTemp + '°' : null);
+
+            var tp = d.tirePressure || {};
+            if (has(tp.fl) || has(tp.fr) || has(tp.rl) || has(tp.rr)) {
+                var u = tp.unit ? ' ' + tp.unit : '';
+                var dash = function (x) { return has(x) ? x : '–'; };
+                addDetail(panel, 'Däcktryck F / B',
+                    dash(tp.fl) + '/' + dash(tp.fr) + ' · ' + dash(tp.rl) + '/' + dash(tp.rr) + u);
+            }
+
+            panel.classList.toggle('hidden', panel.children.length === 0);
+        }
+
+        function refreshFromCar() {
+            var btn = document.getElementById('refreshCarBtn');
+            var txt = document.getElementById('refreshCarText');
+            if (btn.disabled) return;
+            btn.disabled = true;
+            txt.textContent = 'Väcker bilen… (~30 s)';
+
+            fetch(API_URL + '/api/refresh', { method: 'POST' })
+                .then(function(r) {
+                    return r.json().then(function(payload) {
+                        return { ok: r.ok, status: r.status, data: payload };
+                    });
+                })
+                .then(function(result) {
+                    if (result.data && result.data.success) {
+                        lastSuccessAt = Date.now();
+                        updateConnectionStatus(true);
+                        carDetailsShown = true;
+                        renderStatus(result.data.data);
+                        showAlert('Uppdaterad från bilen', 'success');
+                    } else {
+                        showAlert((result.data && result.data.message) || 'Kunde inte uppdatera från bilen', 'error');
+                    }
+                })
+                .catch(function(e) { showAlert('Kunde inte uppdatera från bilen', 'error'); })
+                .finally(function() {
+                    btn.disabled = false;
+                    txt.textContent = '🔄 Uppdatera från bilen';
+                });
+        }
+
+        function saveChargeLimit() {
+            var v = parseInt(document.getElementById('chargeLimitSlider').value, 10);
+            var btn = document.getElementById('saveChargeLimitBtn');
+            if (btn.disabled) return;
+            btn.disabled = true;
+            var orig = btn.textContent;
+            btn.textContent = 'Sparar…';
+
+            fetch(API_URL + '/api/charge-limits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ac: v, dc: v })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                showAlert(result.message, result.success ? 'success' : 'error');
+                if (result.success) setTimeout(refreshStatus, 3000);
+            })
+            .catch(function(e) { showAlert('Kunde inte spara laddgräns', 'error'); })
+            .finally(function() {
+                btn.disabled = false;
+                btn.textContent = orig;
+            });
+        }
+
         function refreshStatus() {
             if (isRefreshing) return;
             isRefreshing = true;
@@ -1080,29 +1343,7 @@
                     if (result.data && result.data.success) {
                         lastSuccessAt = Date.now();
                         updateConnectionStatus(true);
-
-                        var d = result.data.data;
-                        updateBatteryGauge(d.battery, d.charging);
-                        document.getElementById('range').textContent = d.range + ' km';
-
-                        var lockBadge = document.getElementById('lockBadge');
-                        lockBadge.textContent = d.locked ? 'L\u00e5st' : 'Ol\u00e5st';
-                        lockBadge.className = d.locked ? 'badge badge-success' : 'badge badge-warning';
-
-                        var climateBadge = document.getElementById('climateBadge');
-                        if (d.climateActive) {
-                            climateBadge.textContent = 'P\u00e5slagen';
-                            climateBadge.className = 'badge badge-success';
-                            climateActive = true;
-                            updateClimateButtons(true);
-                        } else {
-                            climateBadge.textContent = 'Av';
-                            climateBadge.className = 'badge badge-gray';
-                            climateActive = false;
-                            updateClimateButtons(false);
-                        }
-
-                        updateVehicleAlerts(d.doors, d.windows, d.locked);
+                        renderStatus(result.data.data);
                     } else {
                         if (result.status === 429 && result.data && result.data.retry_after) {
                             if (!lastSuccessAt || Date.now() - lastSuccessAt > 120000) {
