@@ -35,6 +35,17 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder='public', static_url_path='')
 CORS(app)
 
+
+@app.after_request
+def _no_store_frontend(resp):
+    """Never let browsers/PWAs cache the HTML or JS – updates must always land."""
+    ctype = resp.headers.get('Content-Type', '')
+    if ctype.startswith('text/html') or 'javascript' in ctype:
+        resp.headers['Cache-Control'] = 'no-store, max-age=0'
+        resp.headers.pop('ETag', None)
+        resp.headers.pop('Last-Modified', None)
+    return resp
+
 api = None
 token = None
 vehicle = None
@@ -299,13 +310,29 @@ initialize_kia()
 # Basic routes
 # ---------------------------------------------------------------------
 
+def _asset_version(filename):
+    try:
+        return str(int(os.path.getmtime(os.path.join(app.static_folder, filename))))
+    except OSError:
+        return "0"
+
+
+def _render_page(filename):
+    """Serve an HTML page with a cache-busting ?v= on its /app.js reference."""
+    path = os.path.join(app.static_folder, filename)
+    with open(path, encoding='utf-8') as f:
+        html = f.read()
+    html = html.replace('/app.js"', f'/app.js?v={_asset_version("app.js")}"')
+    return app.response_class(html, mimetype='text/html')
+
+
 @app.route('/')
 def index():
-    return send_from_directory('public', 'index.html')
+    return _render_page('index.html')
 
 @app.route('/admin')
 def admin():
-    return send_from_directory('public', 'admin.html')
+    return _render_page('admin.html')
 
 
 @app.route('/api/health')
