@@ -36,6 +36,28 @@ function clearFieldErrors() {
     setFieldError('scheduleDaysError', '');
 }
 
+function pad2(n) { n = String(n); return n.length < 2 ? '0' + n : n; }
+
+function initTimePicker() {
+    var h = document.getElementById('scheduleHour');
+    var m = document.getElementById('scheduleMin');
+    if (!h || !m || h.options.length) return;
+    for (var i = 0; i < 24; i++) h.add(new Option(pad2(i), i));
+    for (var j = 0; j < 60; j++) m.add(new Option(pad2(j), j));
+    setScheduleTime('07:00');
+}
+
+function getScheduleTime() {
+    return pad2(document.getElementById('scheduleHour').value) + ':' +
+           pad2(document.getElementById('scheduleMin').value);
+}
+
+function setScheduleTime(hhmm) {
+    var parts = String(hhmm || '07:00').split(':');
+    document.getElementById('scheduleHour').value = parseInt(parts[0], 10) || 0;
+    document.getElementById('scheduleMin').value = parseInt(parts[1], 10) || 0;
+}
+
 function switchTab(tab) {
     document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
     document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
@@ -183,7 +205,7 @@ function updateExtendedStatus(d) {
     if (d.carUpdatedAt) {
         var dt = new Date(d.carUpdatedAt);
         cu.textContent = 'Data från bilen ' + dt.toLocaleString('sv-SE',
-            { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
     } else {
         cu.textContent = '';
     }
@@ -552,7 +574,7 @@ function editSchedule(id) {
                 if (schedule) {
                     document.getElementById('formTitle').textContent = 'Redigera: ' + schedule.name;
                     document.getElementById('scheduleName').value = schedule.name;
-                    document.getElementById('scheduleTime').value = schedule.time;
+                    setScheduleTime(schedule.time);
                     document.getElementById('scheduleTemp').value = schedule.temperature;
                     document.getElementById('scheduleDefrost').checked = schedule.defrost;
                     selectedDays = schedule.days;
@@ -568,7 +590,7 @@ function editSchedule(id) {
 function cancelSchedule() {
     document.getElementById('addScheduleForm').classList.add('hidden');
     document.getElementById('scheduleName').value = 'Morgon';
-    document.getElementById('scheduleTime').value = '07:00';
+    setScheduleTime('07:00');
     document.getElementById('scheduleTemp').value = '21';
     document.getElementById('scheduleDefrost').checked = false;
     selectedDays = [];
@@ -600,7 +622,7 @@ function saveSchedule() {
     clearFieldErrors();
     var hasError = false;
 
-    var timeValue = document.getElementById('scheduleTime').value;
+    var timeValue = getScheduleTime();
     var nameValue = document.getElementById('scheduleName').value.trim();
     var tempValue = parseInt(document.getElementById('scheduleTemp').value);
 
@@ -689,6 +711,7 @@ function deleteSchedule(id) {
 }
 
 window.addEventListener('load', function () {
+    initTimePicker();
     if (location.hash === '#schema') switchTab('schedule');
     refreshStatus();
 });

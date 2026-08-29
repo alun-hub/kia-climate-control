@@ -682,8 +682,8 @@
             margin-bottom: 8px;
         }
         input[type="text"],
-        input[type="time"],
-        input[type="number"] {
+        input[type="number"],
+        .time-picker select {
             width: 100%;
             padding: 13px 14px;
             background: var(--bg);
@@ -695,7 +695,25 @@
             margin-bottom: 15px;
             transition: border-color .2s;
         }
-        input:focus { outline: none; border-color: var(--state); }
+        input:focus, .time-picker select:focus { outline: none; border-color: var(--state); }
+
+        .time-picker {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+        .time-picker select {
+            flex: 1;
+            text-align: center;
+            text-align-last: center;
+            cursor: pointer;
+        }
+        .time-picker .sep {
+            font-family: var(--mono);
+            font-size: 20px;
+            color: var(--dim);
+            margin-bottom: 15px;
+        }
         input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--state); cursor: pointer; }
         .check-row {
             display: flex;
@@ -873,8 +891,12 @@
                     <input type="text" id="scheduleName" placeholder="T.ex. Morgon" value="Morgon">
                     <div class="field-error hidden" id="scheduleNameError"></div>
 
-                    <label for="scheduleTime">Tid (24-timmar)</label>
-                    <input type="time" id="scheduleTime" value="07:00" step="60">
+                    <label>Tid (24-timmar)</label>
+                    <div class="time-picker">
+                        <select id="scheduleHour" aria-label="Timme"></select>
+                        <span class="sep">:</span>
+                        <select id="scheduleMin" aria-label="Minut"></select>
+                    </div>
                     <div class="field-error hidden" id="scheduleTimeError"></div>
 
                     <label for="scheduleTemp">Temperatur (°C)</label>
