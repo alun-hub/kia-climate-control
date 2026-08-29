@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kia
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kia-data
+  namespace: kia
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kia-climate-control
+  namespace: kia
+  labels:
+    app: kia-climate-control
+spec:
+  replicas: 1
+  # Singleton: in-memory Kia session + one background scheduler thread + RWO PVC.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kia-climate-control
+  template:
+    metadata:
+      labels:
+        app: kia-climate-control
+    spec:
+      # Flask dev server is slow to honour SIGTERM; schedule writes are atomic so
+      # a hard stop is safe. Keep restarts snappy.
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: app
+          image: localhost/kia-climate-control:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 5000
+          env:
+            - name: TZ
+              value: Europe/Stockholm
+            - name: PORT
+              value: "5000"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kia-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kia-climate-control
+  namespace: kia
+spec:
+  selector:
+    app: kia-climate-control
+  ports:
+    - port: 80
+      targetPort: 5000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kia-climate-control
+  namespace: kia
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: kia.unixkonsult.se
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kia-climate-control
+                port:
+                  number: 80

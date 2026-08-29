@@ -552,6 +552,7 @@ def exchange_code():
 @app.route('/api/credentials', methods=['POST'])
 def update_credentials():
     """Update credentials and reinitialize connection."""
+    global init_cooldown_until, init_backoff_seconds
     try:
         data = request.get_json(silent=True) or {}
         new_username = data.get('username')
@@ -598,6 +599,11 @@ def update_credentials():
         except Exception as e:
             logger.error(f"Failed to save credentials to {env_path}: {str(e)}")
             raise
+
+        # Clear any active cooldown/backoff from earlier failed retries so the
+        # user gets an immediate connect result instead of a stale 500.
+        init_cooldown_until = 0
+        init_backoff_seconds = 0
 
         logger.info("Återansluter med nya uppgifter...")
         if initialize_kia():
