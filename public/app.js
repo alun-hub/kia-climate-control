@@ -270,15 +270,17 @@ function updateCarDetails(d) {
     panel.classList.toggle('hidden', panel.children.length === 0);
 }
 
-function refreshFromCar() {
+function refreshFromCar(auto) {
     var btn = document.getElementById('refreshCarBtn');
     var txt = document.getElementById('refreshCarText');
+    var gauge = document.getElementById('batteryGauge');
     if (btn.disabled) return;
     btn.disabled = true;
     btn.classList.add('loading');
-    txt.textContent = 'Väcker bilen…';
+    gauge.classList.add('polling');
+    if (!auto) txt.textContent = 'Väcker bilen…';
 
-    fetch(API_URL + '/api/refresh', { method: 'POST' })
+    fetch(API_URL + '/api/refresh' + (auto ? '?auto=1' : ''), { method: 'POST' })
         .then(function (r) {
             return r.json().then(function (payload) {
                 return { ok: r.ok, status: r.status, data: payload };
@@ -290,15 +292,18 @@ function refreshFromCar() {
                 updateConnectionStatus(true);
                 carDetailsShown = true;
                 renderStatus(result.data.data);
-                showAlert('Uppdaterad från bilen', 'success');
-            } else {
+                if (!auto) {
+                    showAlert(result.data.woke ? 'Uppdaterad från bilen' : 'Bilen uppdaterades nyss – visar senaste värden', 'success');
+                }
+            } else if (!auto) {
                 showAlert((result.data && result.data.message) || 'Kunde inte uppdatera från bilen', 'error');
             }
         })
-        .catch(function (e) { showAlert('Kunde inte uppdatera från bilen', 'error'); })
+        .catch(function (e) { if (!auto) showAlert('Kunde inte uppdatera från bilen', 'error'); })
         .finally(function () {
             btn.disabled = false;
             btn.classList.remove('loading');
+            gauge.classList.remove('polling');
             txt.textContent = 'Uppdatera från bilen';
         });
 }
@@ -714,4 +719,6 @@ window.addEventListener('load', function () {
     initTimePicker();
     if (location.hash === '#schema') switchTab('schedule');
     refreshStatus();
+    // Then pull fresh values from the car (server throttles the actual wake-up).
+    setTimeout(function () { refreshFromCar(true); }, 400);
 });

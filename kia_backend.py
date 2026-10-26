@@ -53,6 +53,12 @@ api_lock = threading.RLock()
 init_cooldown_until = 0
 init_backoff_seconds = 0
 last_vehicle_refresh_ts = 0
+
+# Car wake-up (force refresh) throttling. Kia rate-limits real wake-ups hard,
+# so we never wake the car more often than this even if clients ask.
+AUTO_REFRESH_COOLDOWN = 600   # page load / battery-gauge tap: at most one wake / 10 min
+MANUAL_REFRESH_FLOOR = 90     # explicit "Uppdatera från bilen": min seconds between wakes
+last_force_refresh_ts = 0.0
 last_success_at = None
 last_error = None
 last_error_at = None
@@ -792,34 +798,58 @@ def status():
 
 @app.route('/api/refresh', methods=['POST'])
 def refresh_from_car():
-    """Wake the car and pull a fresh, complete state (slow: 10–30 s)."""
+    """Pull a fresh vehicle state.
+
+    Normally wakes the car (slow: 10–30 s). With ?auto=1 (page load / battery-gauge
+    tap) the wake is throttled to once per AUTO_REFRESH_COOLDOWN; explicit calls are
+    throttled to MANUAL_REFRESH_FLOOR. When the wake is skipped we still return the
+    Kia-cloud cached state so the UI always re-renders with the latest known values.
+    """
+    global last_force_refresh_ts
+
     if not ensure_token():
         cooldown = get_cooldown_seconds()
         if cooldown > 0:
             return jsonify(success=False, code="rate_limit", message=f"Rate-limit – försök igen om {cooldown}s", retry_after=cooldown), 429
         return jsonify(success=False, code="not_connected", message="Ej ansluten"), 401
 
-    def _do_force_refresh():
+    auto = request.args.get("auto") == "1"
+    min_interval = AUTO_REFRESH_COOLDOWN if auto else MANUAL_REFRESH_FLOOR
+    woke = {"done": False}
+
+    def _do_refresh():
+        global last_force_refresh_ts
         with api_lock:
-            api.force_refresh_vehicle_state(token, vehicle)
+            # Re-check inside the lock so concurrent requests don't double-wake.
+            if (time.time() - last_force_refresh_ts) >= min_interval:
+                api.force_refresh_vehicle_state(token, vehicle)
+                last_force_refresh_ts = time.time()
+                woke["done"] = True
             api.update_vehicle_with_cached_state(token, vehicle)
 
     try:
-        _do_force_refresh()
+        _do_refresh()
     except (AuthenticationError, DeviceIDError) as e:
         logger.warning(f"Auth/DeviceID-fel vid force refresh: {e} – förnyar session")
-        ok, err = _reauth_and_retry(_do_force_refresh, "uppdatering från bil")
+        ok, err = _reauth_and_retry(_do_refresh, "uppdatering från bil")
         if not ok:
             return jsonify(success=False, code="status_error", message="Kunde inte uppdatera från bilen"), 502
     except DuplicateRequestError:
-        return jsonify(success=False, code="duplicate", message="Bilen uppdaterades nyss – vänta någon minut"), 429
+        # Kia says the car was refreshed very recently – fall back to cached state.
+        try:
+            with api_lock:
+                api.update_vehicle_with_cached_state(token, vehicle)
+            last_force_refresh_ts = time.time()
+            return jsonify(success=True, woke=False, data=build_status_payload())
+        except Exception:
+            return jsonify(success=False, code="duplicate", message="Bilen uppdaterades nyss – vänta någon minut"), 429
     except RateLimitingError:
         return jsonify(success=False, code="rate_limit", message="För många förfrågningar mot Kia – försök igen senare"), 429
     except Exception as e:
         logger.exception(f"Force refresh-fel: {e}")
         return jsonify(success=False, code="status_error", message="Kunde inte uppdatera från bilen"), 502
 
-    return jsonify(success=True, data=build_status_payload())
+    return jsonify(success=True, woke=woke["done"], data=build_status_payload())
 
 
 @app.route('/api/charge-limits', methods=['POST'])
